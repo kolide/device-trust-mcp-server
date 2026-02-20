@@ -1,13 +1,17 @@
 # 1Password Device Trust (Kolide K2) MCP Server
 
-An MCP (Model Context Protocol) server that exposes the 1Password Device Trust API (formerly Kolide K2) as tools for AI agents. Uses SSE (Server-Sent Events) transport for communication.
+An MCP (Model Context Protocol) server that exposes the 1Password Device Trust API (formerly Kolide K2) as tools for AI agents. Uses Streamable HTTP transport for communication.
 
 ## Features
 
-- Full coverage of 1Password Device Trust (Kolide K2) API endpoints (59 endpoints exposed as MCP tools)
-- SSE transport for easy integration with AI tools
+- Full coverage of 1Password Device Trust (Kolide K2) API endpoints (56 endpoint tools + 2 composite analytical tools)
+- **Auto-pagination** (`fetch_all`) to retrieve complete datasets in a single tool call
+- **Field projection** (`fields`) to return only the columns you need, reducing response size
+- **Device owner enrichment** (`enrich_device_owner`) to automatically resolve device IDs to owner names/emails
+- **Composite analytical tools** for common aggregation tasks (resolution time stats, grouped counts)
+- **MCP Resources** providing search syntax docs, reporting table guides, and workflow references
+- Streamable HTTP transport for easy integration with AI tools
 - API key loaded fresh on each request (supports `.env` file updates without restart)
-- Pagination support via cursor-based navigation
 
 ## Installation
 
@@ -58,9 +62,9 @@ python -m kolide_mcp.server
 
 The server will start and display:
 ```
-Starting Kolide MCP server on 0.0.0.0:8000
-SSE endpoint: http://0.0.0.0:8000/sse
-Messages endpoint: http://0.0.0.0:8000/messages/
+Starting 1Password Device Trust MCP server on 0.0.0.0:8000
+MCP endpoint: http://0.0.0.0:8000/mcp
+Health check: http://0.0.0.0:8000/health
 ```
 
 ## Connecting AI Tools
@@ -97,9 +101,53 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Connect to the MCP endpoint at `http://localhost:8000/mcp`. The server uses the Streamable HTTP transport which accepts both GET and POST requests.
 
+## Enhanced Parameters for List Tools
+
+All paginated list tools support these additional parameters that significantly reduce the number of tool calls needed for analytical queries.
+
+### `fetch_all` (boolean)
+
+Automatically follow all pagination cursors and return the complete result set in a single response. Capped at 10,000 records or 50 pages.
+
+```json
+{
+  "table_name": "device_chrome_extensions",
+  "fetch_all": true
+}
+```
+
+### `fields` (string array)
+
+Return only specified fields in each record, reducing response size dramatically for tables with large payloads.
+
+```json
+{
+  "table_name": "device_chrome_extensions",
+  "fetch_all": true,
+  "fields": ["device_id", "device_name", "name", "identifier"]
+}
+```
+
+### `enrich_device_owner` (boolean)
+
+Automatically resolve `device_id` or `device_information` fields to the registered owner's name and email. Injects `owner_name` and `owner_email` into each record.
+
+```json
+{
+  "query": "check_id:\"27680\"",
+  "fetch_all": true,
+  "enrich_device_owner": true
+}
+```
+
 ## Available Tools
 
-The server exposes 56 tools covering all 1Password Device Trust (Kolide K2) API functionality:
+The server exposes 58 tools: 56 endpoint tools covering all API functionality, plus 2 composite analytical tools.
+
+### Composite Analytical Tools
+
+- `kolide_issue_resolution_stats` - Compute resolution time statistics (avg, median, min, max, p90) for issues of a specific check. Automatically fetches all pages.
+- `kolide_count_table_records_by_field` - Count records in a reporting table grouped by a field. Returns ranked results. Useful for "which device has the most extensions?" style questions.
 
 ### Organization
 - `kolide_whoami` - Get organization information
@@ -187,22 +235,34 @@ The server exposes 56 tools covering all 1Password Device Trust (Kolide K2) API 
 - `kolide_get_report_query` - Get query details
 - `kolide_get_report_query_results` - Execute and get query results
 
+## MCP Resources
+
+The server exposes three reference documentation resources that AI agents can read for context:
+
+| Resource URI | Description |
+|---|---|
+| `kolide://docs/search-syntax` | Full search query syntax with operators, field names per endpoint, and examples |
+| `kolide://docs/reporting-tables` | Overview of reporting tables with efficient querying tips |
+| `kolide://docs/workflows` | Step-by-step guides for common analytical tasks |
+
 ## Query Parameter
 
 Many list tools support a `query` parameter for filtering. The query syntax uses:
-- `:` for exact matches (e.g., `status:failing`)
-- `~` for partial string matches (e.g., `name~macbook`)
-- `:[...]` for array matches (e.g., `status:["open","resolved"]`)
+- `:` for exact matches (e.g., `status:"fail"`)
+- `~` for substring matches (e.g., `name~"MacBook"`)
+- `>` / `<` for datetime comparisons (e.g., `detected_at>"2025-01-01T00:00:00Z"`)
+- `AND` / `OR` to combine clauses
+
+Each tool's description includes the searchable fields and examples for that endpoint.
 
 ## Pagination
 
-List tools return paginated results. Use the `cursor` from the response to fetch the next page:
+List tools return paginated results. Use the `cursor` from the response to fetch the next page, or set `fetch_all: true` to retrieve all pages automatically:
 
 ```json
 {
   "cursor": "next_page_cursor",
-  "per_page": 25,
-  ...
+  "per_page": 25
 }
 ```
 

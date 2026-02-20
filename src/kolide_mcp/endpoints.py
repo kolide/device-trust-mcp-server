@@ -651,10 +651,37 @@ def build_tool(spec: EndpointSpec) -> Tool:
             "description": "Cursor for pagination",
         }
         properties["per_page"] = {
-            "type": "integer",
+            "type": ["integer", "string"],
             "description": "Number of records per page (1-100)",
             "minimum": 1,
             "maximum": 100,
+        }
+        properties["fetch_all"] = {
+            "type": ["boolean", "string"],
+            "description": (
+                "Set to true to automatically follow all pagination cursors and "
+                "return the complete result set in a single response. Capped at "
+                "10,000 records or 50 pages. When using fetch_all, cursor is ignored."
+            ),
+        }
+        properties["fields"] = {
+            "type": ["array", "string"],
+            "items": {"type": "string"},
+            "description": (
+                "List of field names to include in each record. "
+                "When specified, only these fields are returned per record, "
+                "significantly reducing response size for large datasets. "
+                "Pass as an array or a comma-separated string. "
+                "Example: [\"device_id\", \"device_name\", \"name\"]"
+            ),
+        }
+        properties["enrich_device_owner"] = {
+            "type": ["boolean", "string"],
+            "description": (
+                "Set to true to enrich each record that has a device_id or "
+                "device_information field with the device owner's name and email. "
+                "Adds owner_name and owner_email fields to matching records."
+            ),
         }
 
     # Search query with per-endpoint documentation

@@ -6,20 +6,25 @@ from typing import Any
 
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import TextContent, Tool
+from mcp.types import Resource, TextContent, Tool
 
 from .client import KolideClient, KolideAPIError
+from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS
 from .endpoints import (
     ENDPOINT_MAP,
     EndpointSpec,
     build_all_tools,
     get_path_params,
 )
+from .resources import RESOURCES, get_resource_content
 
 server = Server("kolide-1password-device-trust")
 client = KolideClient()
 
-TOOLS = build_all_tools()
+MAX_FETCH_ALL = 10_000
+MAX_FETCH_ALL_PAGES = 50
+
+TOOLS = build_all_tools() + COMPOSITE_TOOLS
 
 
 def _format_result(result: Any) -> str:
@@ -29,12 +34,10 @@ def _format_result(result: Any) -> str:
 
 async def _dispatch(spec: EndpointSpec, args: dict[str, Any]) -> Any:
     """Execute an API call derived from an EndpointSpec and the tool arguments."""
-    # Resolve path parameters
     path = spec.path
     for pname in get_path_params(spec.path):
         path = path.replace(f"{{{pname}}}", str(args[pname]))
 
-    # Query-string params for paginated list endpoints
     params: dict[str, Any] | None = None
     if spec.paginated:
         params = {
@@ -44,7 +47,6 @@ async def _dispatch(spec: EndpointSpec, args: dict[str, Any]) -> Any:
         if spec.searchable_fields:
             params["query"] = args.get("query")
 
-    # Request body for write operations
     json_data: Any = None
     if spec.method in ("POST", "PATCH", "PUT"):
         if spec.body_param:
@@ -59,7 +61,103 @@ async def _dispatch(spec: EndpointSpec, args: dict[str, Any]) -> Any:
                         body[param.name] = val
             json_data = body if body else None
 
-    return await client.request(spec.method, path, params=params, json_data=json_data)
+    result = await client.request(spec.method, path, params=params, json_data=json_data)
+
+    if args.get("fetch_all") and spec.paginated and isinstance(result, dict):
+        all_data = list(result.get("data", []))
+        pages = 1
+        while (
+            result.get("pagination", {}).get("next_cursor")
+            and len(all_data) < MAX_FETCH_ALL
+            and pages < MAX_FETCH_ALL_PAGES
+        ):
+            params["cursor"] = result["pagination"]["next_cursor"]
+            result = await client.request(spec.method, path, params=params)
+            all_data.extend(result.get("data", []))
+            pages += 1
+        result = {
+            "data": all_data,
+            "total_count": len(all_data),
+            "pages_fetched": pages,
+            "truncated": len(all_data) >= MAX_FETCH_ALL or pages >= MAX_FETCH_ALL_PAGES,
+        }
+
+    return result
+
+
+def _extract_device_id(record: dict[str, Any]) -> str | None:
+    """Extract device_id from a record, handling both flat and nested formats."""
+    dev_id = record.get("device_id")
+    if dev_id is not None:
+        return str(dev_id)
+    dev_info = record.get("device_information")
+    if isinstance(dev_info, dict):
+        ident = dev_info.get("identifier")
+        if ident is not None:
+            return str(ident)
+    return None
+
+
+async def _enrich_device_owners(records: list[dict[str, Any]]) -> None:
+    """Enrich records in-place with owner_name and owner_email fields."""
+    owner_cache: dict[str, dict[str, str]] = {}
+
+    for record in records:
+        dev_id = _extract_device_id(record)
+        if not dev_id:
+            continue
+
+        if dev_id not in owner_cache:
+            try:
+                device = await client.request("GET", f"/devices/{dev_id}")
+                person_id = device.get("registered_owner_info", {}).get("identifier")
+                if person_id:
+                    person = await client.request("GET", f"/people/{person_id}")
+                    owner_cache[dev_id] = {
+                        "owner_name": person.get("name", ""),
+                        "owner_email": person.get("email", ""),
+                    }
+                else:
+                    owner_cache[dev_id] = {}
+            except KolideAPIError:
+                owner_cache[dev_id] = {}
+
+        if owner_cache[dev_id]:
+            record.update(owner_cache[dev_id])
+
+
+def _apply_field_projection(result: dict[str, Any], fields: list[str]) -> None:
+    """Filter records in-place to only include requested fields."""
+    field_set = set(fields)
+    result["data"] = [
+        {k: v for k, v in item.items() if k in field_set}
+        for item in result["data"]
+    ]
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Coerce a value to boolean, handling string representations."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    return bool(value)
+
+
+def _coerce_field_list(value: Any) -> list[str]:
+    """Coerce a value to a list of field names, handling CSV strings and JSON."""
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    if isinstance(value, str):
+        import json as _json
+        try:
+            parsed = _json.loads(value)
+            if isinstance(parsed, list):
+                return [str(v) for v in parsed]
+        except (ValueError, TypeError):
+            pass
+        return [f.strip() for f in value.split(",") if f.strip()]
+    return []
 
 
 @server.list_tools()
@@ -72,15 +170,46 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
     try:
+        handler = COMPOSITE_HANDLERS.get(name)
+        if handler:
+            result = await handler(client, arguments)
+            return [TextContent(type="text", text=_format_result(result))]
+
         spec = ENDPOINT_MAP.get(name)
         if not spec:
             raise ValueError(f"Unknown tool: {name}")
-        result = await _dispatch(spec, arguments)
+
+        fetch_all = _coerce_bool(arguments.get("fetch_all", False))
+        enrich = _coerce_bool(arguments.get("enrich_device_owner", False))
+        raw_fields = arguments.get("fields")
+        projected_fields = _coerce_field_list(raw_fields) if raw_fields else None
+
+        coerced_args = {**arguments, "fetch_all": fetch_all}
+        result = await _dispatch(spec, coerced_args)
+
+        if isinstance(result, dict) and "data" in result:
+            if enrich:
+                await _enrich_device_owners(result["data"])
+            if projected_fields:
+                _apply_field_projection(result, projected_fields)
+
         return [TextContent(type="text", text=_format_result(result))]
     except KolideAPIError as e:
         return [TextContent(type="text", text=f"Error: {e.message} (status: {e.status_code})")]
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+@server.list_resources()
+async def handle_list_resources() -> list[Resource]:
+    """List available reference documentation resources."""
+    return RESOURCES
+
+
+@server.read_resource()
+async def handle_read_resource(uri) -> str:
+    """Read a reference documentation resource."""
+    return get_resource_content(str(uri))
 
 
 def create_app():
