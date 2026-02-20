@@ -32,13 +32,23 @@ TOOLS = [
     # Audit Logs
     Tool(
         name="kolide_list_audit_logs",
-        description="Fetch a list of Audit logs from 1Password Device Trust (Kolide K2). Use query parameter to filter results.",
+        description="Fetch a list of Audit logs from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: timestamp, actor_name, description. "
+                        "Examples: 'actor_name~\"john\"', 'timestamp>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -57,13 +67,23 @@ TOOLS = [
     # Auth Logs
     Tool(
         name="kolide_list_auth_logs",
-        description="Fetch a list of Auth log sessions from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Auth log sessions from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: timestamp, city, country, ip_address, agent_version, browser_name, person_name, person_email, person_id, device_id, result. "
+                        "Examples: 'person_email~\"@example.com\"', 'result:\"success\"', 'timestamp>\"2025-01-01T00:00:00Z\" AND country:\"US\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -82,13 +102,23 @@ TOOLS = [
     # Devices
     Tool(
         name="kolide_list_devices",
-        description="Fetch a list of Devices from 1Password Device Trust (Kolide K2). Use query parameter to filter by name, serial, etc.",
+        description="Fetch a list of Devices from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, name, registered_at, last_authenticated_at, serial, note, hardware_uuid, device_type, will_block_at. "
+                        "Examples: 'name~\"MacBook\"', 'serial:\"ABC123\"', 'device_type:\"Mac\" AND registered_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -117,14 +147,24 @@ TOOLS = [
     ),
     Tool(
         name="kolide_get_device_open_issues",
-        description="Fetch a list of open Device Trust Issues for a Device from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of open Device Trust Issues for a Device from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "device_id": {"type": "string", "description": "The ID of the device"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, detected_at, resolved_at, blocks_device_at, title, issue_key, issue_value, exempted, check_id, device_id, last_rechecked_at. "
+                        "Examples: 'title~\"firewall\"', 'exempted:false', 'detected_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": ["device_id"],
         },
@@ -166,14 +206,24 @@ TOOLS = [
     ),
     Tool(
         name="kolide_get_device_check_results",
-        description="Fetch a list of Device Trust Check results for a Device from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device Trust Check results for a Device from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "device_id": {"type": "string", "description": "The ID of the device"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: device_display_name, ran_at, check_name, status. "
+                        "Examples: 'status:\"fail\"', 'check_name~\"encryption\"', 'ran_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": ["device_id"],
         },
@@ -181,13 +231,23 @@ TOOLS = [
     # Device Groups
     Tool(
         name="kolide_list_device_groups",
-        description="Fetch a list of Device groups from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device groups from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: created_at, name, description. "
+                        "Examples: 'name~\"engineering\"', 'created_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -205,14 +265,24 @@ TOOLS = [
     ),
     Tool(
         name="kolide_list_device_group_devices",
-        description="Fetch a list of Devices in a Device group from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Devices in a Device group from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "device_group_id": {"type": "string", "description": "The ID of the device group"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, name, registered_at, last_authenticated_at, serial, note, hardware_uuid, device_type, will_block_at. "
+                        "Examples: 'name~\"MacBook\"', 'device_type:\"Mac\"', 'last_authenticated_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": ["device_group_id"],
         },
@@ -244,13 +314,23 @@ TOOLS = [
     # Issues
     Tool(
         name="kolide_list_issues",
-        description="Fetch a list of Device Trust Issues from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device Trust Issues from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, detected_at, resolved_at, blocks_device_at, title, issue_key, issue_value, exempted, check_id, device_id, last_rechecked_at. "
+                        "Examples: 'title~\"firewall\"', 'exempted:false AND detected_at>\"2025-01-01T00:00:00Z\"', 'device_id:\"12345\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -269,13 +349,23 @@ TOOLS = [
     # People
     Tool(
         name="kolide_list_people",
-        description="Fetch a list of People from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of People from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, email, name, last_authenticated_at. "
+                        "Examples: 'email~\"@example.com\"', 'name~\"John\"', 'last_authenticated_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -293,55 +383,95 @@ TOOLS = [
     ),
     Tool(
         name="kolide_list_person_devices",
-        description="Fetch a list of registered Devices for a Person from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of registered Devices for a Person from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "person_id": {"type": "string", "description": "The ID of the person"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, name, registered_at, last_authenticated_at, serial, note, hardware_uuid, device_type, will_block_at. "
+                        "Examples: 'name~\"MacBook\"', 'serial:\"ABC123\"', 'device_type:\"Mac\"'."
+                    ),
+                },
             },
             "required": ["person_id"],
         },
     ),
     Tool(
         name="kolide_list_person_issues",
-        description="Fetch a list of open Device Trust Issues for a Person from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of open Device Trust Issues for a Person from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "person_id": {"type": "string", "description": "The ID of the person"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, detected_at, resolved_at, blocks_device_at, title, issue_key, issue_value, exempted, check_id, device_id, last_rechecked_at. "
+                        "Examples: 'title~\"firewall\"', 'exempted:false', 'detected_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": ["person_id"],
         },
     ),
     Tool(
         name="kolide_list_person_groups_for_person",
-        description="Fetch a list of Person groups that a Person belongs to from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Person groups that a Person belongs to from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "person_id": {"type": "string", "description": "The ID of the person"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: name. "
+                        "Examples: 'name~\"engineering\"', 'name:\"Security Team\"'."
+                    ),
+                },
             },
             "required": ["person_id"],
         },
     ),
     Tool(
         name="kolide_list_deprovisioned_people",
-        description="Fetch a list of people that have been deprovisioned from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of people that have been deprovisioned from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, email, name, last_authenticated_at. "
+                        "Examples: 'email~\"@example.com\"', 'name~\"John\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -349,13 +479,23 @@ TOOLS = [
     # Person Groups
     Tool(
         name="kolide_list_person_groups",
-        description="Fetch a list of Person groups from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Person groups from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: name. "
+                        "Examples: 'name~\"engineering\"', 'name:\"Security Team\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -373,14 +513,24 @@ TOOLS = [
     ),
     Tool(
         name="kolide_list_person_group_people",
-        description="Fetch a list of People in a Person group from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of People in a Person group from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "person_group_id": {"type": "string", "description": "The ID of the person group"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: id, email, name, last_authenticated_at. "
+                        "Examples: 'email~\"@example.com\"', 'name~\"John\"'."
+                    ),
+                },
             },
             "required": ["person_group_id"],
         },
@@ -388,13 +538,23 @@ TOOLS = [
     # Checks
     Tool(
         name="kolide_list_checks",
-        description="Fetch a list of Device Trust Checks (security/compliance checks) from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device Trust Checks (security/compliance checks) from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: name, check_description, check_tag_name, check_tag_description, check_tag_id, slug, type. "
+                        "Examples: 'name~\"encryption\"', 'type:\"blocker\"', 'check_tag_name~\"macOS\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -412,14 +572,24 @@ TOOLS = [
     ),
     Tool(
         name="kolide_get_check_results",
-        description="Fetch a list of Device Trust Check results for a specific Check from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device Trust Check results for a specific Check from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "check_id": {"type": "string", "description": "The ID of the check"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: device_display_name, ran_at, check_name, status. "
+                        "Examples: 'status:\"fail\"', 'device_display_name~\"MacBook\"', 'ran_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": ["check_id"],
         },
@@ -450,13 +620,23 @@ TOOLS = [
     # Live Query Campaigns
     Tool(
         name="kolide_list_live_query_campaigns",
-        description="Fetch a list of Live query campaigns from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Live query campaigns from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: created_at, name, published, tables_used. "
+                        "Examples: 'name~\"disk\"', 'published:true', 'created_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -513,14 +693,24 @@ TOOLS = [
     ),
     Tool(
         name="kolide_get_live_query_results",
-        description="Fetch results for a Live query campaign from 1Password Device Trust (Kolide K2)",
+        description="Fetch results for a Live query campaign from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "campaign_id": {"type": "string", "description": "The ID of the campaign"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: error_message, warning_message. "
+                        "Examples: 'error_message~\"timeout\"', 'warning_message~\"deprecated\"'."
+                    ),
+                },
             },
             "required": ["campaign_id"],
         },
@@ -528,13 +718,23 @@ TOOLS = [
     # Exemption Requests
     Tool(
         name="kolide_list_exemption_requests",
-        description="Fetch a list of Device Trust Exemption requests from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device Trust Exemption requests from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: status, requested_at, requester_message. "
+                        "Examples: 'status:\"pending\"', 'requested_at>\"2025-01-01T00:00:00Z\"', 'requester_message~\"update\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -566,13 +766,23 @@ TOOLS = [
     # Registration Requests
     Tool(
         name="kolide_list_registration_requests",
-        description="Fetch a list of Device Registration requests from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Device Registration requests from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: status, requested_at, requester_message. "
+                        "Examples: 'status:\"pending\"', 'requested_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -603,13 +813,12 @@ TOOLS = [
     # Packages
     Tool(
         name="kolide_list_packages",
-        description="Fetch a list of software Packages from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of software Packages from 1Password Device Trust (Kolide K2). This endpoint does not support search queries.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
             },
             "required": [],
         },
@@ -628,13 +837,23 @@ TOOLS = [
     # Admin Users
     Tool(
         name="kolide_list_admin_users",
-        description="Fetch a list of Admin users from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Admin users from 1Password Device Trust (Kolide K2). Use the query parameter to filter results by searchable fields.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search query to filter results. Syntax: field_name<operator>value. "
+                        "Operators: ':' (exact match), '~' (substring match), '<' / '>' (datetime comparison). "
+                        "Quote values containing spaces with double quotes. "
+                        "Combine clauses with ' AND ' or ' OR '. "
+                        "Searchable fields: first_name, last_name, email, created_at. "
+                        "Examples: 'email~\"@example.com\"', 'last_name:\"Smith\"', 'created_at>\"2025-01-01T00:00:00Z\"'."
+                    ),
+                },
             },
             "required": [],
         },
@@ -653,13 +872,12 @@ TOOLS = [
     # Reporting Tables
     Tool(
         name="kolide_list_reporting_tables",
-        description="Fetch a list of Reporting tables available for queries from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of Reporting tables available for queries from 1Password Device Trust (Kolide K2). This endpoint does not support search queries.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
             },
             "required": [],
         },
@@ -677,14 +895,13 @@ TOOLS = [
     ),
     Tool(
         name="kolide_get_table_records",
-        description="Fetch records from a Reporting table from 1Password Device Trust (Kolide K2)",
+        description="Fetch records from a Reporting table from 1Password Device Trust (Kolide K2). This endpoint does not support search queries.",
         inputSchema={
             "type": "object",
             "properties": {
                 "table_name": {"type": "string", "description": "The name of the reporting table"},
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
             },
             "required": ["table_name"],
         },
@@ -692,13 +909,12 @@ TOOLS = [
     # Report Queries
     Tool(
         name="kolide_list_report_queries",
-        description="Fetch a list of saved Report queries from 1Password Device Trust (Kolide K2)",
+        description="Fetch a list of saved Report queries from 1Password Device Trust (Kolide K2). This endpoint does not support search queries.",
         inputSchema={
             "type": "object",
             "properties": {
                 "cursor": {"type": "string", "description": "Cursor for pagination"},
                 "per_page": {"type": "integer", "description": "Number of records per page (1-100)", "minimum": 1, "maximum": 100},
-                "query": {"type": "string", "description": "Query to filter results"},
             },
             "required": [],
         },
@@ -996,7 +1212,6 @@ async def _dispatch_tool(name: str, args: dict[str, Any]) -> Any:
         return await client.list_packages(
             cursor=args.get("cursor"),
             per_page=args.get("per_page"),
-            query=args.get("query"),
         )
     elif name == "kolide_get_package":
         return await client.get_package(args["package_id"])
@@ -1016,7 +1231,6 @@ async def _dispatch_tool(name: str, args: dict[str, Any]) -> Any:
         return await client.list_reporting_tables(
             cursor=args.get("cursor"),
             per_page=args.get("per_page"),
-            query=args.get("query"),
         )
     elif name == "kolide_get_reporting_table":
         return await client.get_reporting_table(args["table_name"])
@@ -1025,7 +1239,6 @@ async def _dispatch_tool(name: str, args: dict[str, Any]) -> Any:
             table_name=args["table_name"],
             cursor=args.get("cursor"),
             per_page=args.get("per_page"),
-            query=args.get("query"),
         )
 
     # Report Queries
@@ -1033,7 +1246,6 @@ async def _dispatch_tool(name: str, args: dict[str, Any]) -> Any:
         return await client.list_report_queries(
             cursor=args.get("cursor"),
             per_page=args.get("per_page"),
-            query=args.get("query"),
         )
     elif name == "kolide_get_report_query":
         return await client.get_report_query(args["query_id"])

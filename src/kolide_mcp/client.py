@@ -588,13 +588,12 @@ class KolideClient:
         self,
         cursor: str | None = None,
         per_page: int | None = None,
-        query: str | None = None,
     ) -> dict[str, Any]:
         """Fetch a list of Packages."""
         return await self._request(
             "GET",
             "/packages",
-            params={"cursor": cursor, "per_page": per_page, "query": query},
+            params={"cursor": cursor, "per_page": per_page},
         )
 
     async def get_package(self, package_id: str) -> dict[str, Any]:
@@ -626,13 +625,12 @@ class KolideClient:
         self,
         cursor: str | None = None,
         per_page: int | None = None,
-        query: str | None = None,
     ) -> dict[str, Any]:
         """Fetch a list of Reporting tables."""
         return await self._request(
             "GET",
             "/reporting/tables",
-            params={"cursor": cursor, "per_page": per_page, "query": query},
+            params={"cursor": cursor, "per_page": per_page},
         )
 
     async def get_reporting_table(self, table_name: str) -> dict[str, Any]:
@@ -644,13 +642,12 @@ class KolideClient:
         table_name: str,
         cursor: str | None = None,
         per_page: int | None = None,
-        query: str | None = None,
     ) -> dict[str, Any]:
         """Fetch records from a Reporting table."""
         return await self._request(
             "GET",
             f"/reporting/tables/{table_name}/table_records",
-            params={"cursor": cursor, "per_page": per_page, "query": query},
+            params={"cursor": cursor, "per_page": per_page},
         )
 
     # ===== Report Queries =====
@@ -659,13 +656,12 @@ class KolideClient:
         self,
         cursor: str | None = None,
         per_page: int | None = None,
-        query: str | None = None,
     ) -> dict[str, Any]:
         """Fetch a list of Report queries."""
         return await self._request(
             "GET",
             "/reporting/queries",
-            params={"cursor": cursor, "per_page": per_page, "query": query},
+            params={"cursor": cursor, "per_page": per_page},
         )
 
     async def get_report_query(self, query_id: str) -> dict[str, Any]:
