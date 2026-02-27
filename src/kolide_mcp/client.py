@@ -28,10 +28,10 @@ class KolideClient:
     API_VERSION = "2023-05-26"
 
     def __init__(self) -> None:
-        load_dotenv(override=True)
         self._http = httpx.AsyncClient(base_url=self.BASE_URL, timeout=30.0)
 
     def _get_headers(self) -> dict[str, str]:
+        load_dotenv(override=True)
         api_key = os.getenv("KOLIDE_API_KEY")
         if not api_key:
             raise KolideAPIError(401, "KOLIDE_API_KEY environment variable not set")
