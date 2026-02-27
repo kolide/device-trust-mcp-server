@@ -99,30 +99,65 @@ def _extract_device_id(record: dict[str, Any]) -> str | None:
 
 
 async def _enrich_device_owners(records: list[dict[str, Any]]) -> None:
-    """Enrich records in-place with owner_name and owner_email fields."""
+    """Enrich records in-place with owner_name and owner_email fields.
+
+    Fetches device and person data concurrently in two batched rounds
+    instead of issuing sequential calls per record.
+    """
+    import asyncio
+
+    unique_device_ids = {
+        did for r in records if (did := _extract_device_id(r))
+    }
+    if not unique_device_ids:
+        return
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def _fetch_device(dev_id: str) -> tuple[str, dict[str, Any] | None]:
+        async with semaphore:
+            try:
+                return (dev_id, await client.request("GET", f"/devices/{dev_id}"))
+            except KolideAPIError:
+                return (dev_id, None)
+
+    device_results = await asyncio.gather(
+        *[_fetch_device(did) for did in unique_device_ids]
+    )
+
+    person_to_devices: dict[str, list[str]] = {}
+    for dev_id, device in device_results:
+        if device is None:
+            continue
+        person_id = device.get("registered_owner_info", {}).get("identifier")
+        if person_id:
+            person_to_devices.setdefault(str(person_id), []).append(dev_id)
+
+    async def _fetch_person(person_id: str) -> tuple[str, dict[str, Any] | None]:
+        async with semaphore:
+            try:
+                return (person_id, await client.request("GET", f"/people/{person_id}"))
+            except KolideAPIError:
+                return (person_id, None)
+
+    person_results = await asyncio.gather(
+        *[_fetch_person(pid) for pid in person_to_devices]
+    )
+
     owner_cache: dict[str, dict[str, str]] = {}
+    for person_id, person in person_results:
+        if person is None:
+            continue
+        owner_info = {
+            "owner_name": person.get("name", ""),
+            "owner_email": person.get("email", ""),
+        }
+        for dev_id in person_to_devices[person_id]:
+            owner_cache[dev_id] = owner_info
 
     for record in records:
         dev_id = _extract_device_id(record)
-        if not dev_id:
-            continue
-
-        if dev_id not in owner_cache:
-            try:
-                device = await client.request("GET", f"/devices/{dev_id}")
-                person_id = device.get("registered_owner_info", {}).get("identifier")
-                if person_id:
-                    person = await client.request("GET", f"/people/{person_id}")
-                    owner_cache[dev_id] = {
-                        "owner_name": person.get("name", ""),
-                        "owner_email": person.get("email", ""),
-                    }
-                else:
-                    owner_cache[dev_id] = {}
-            except KolideAPIError:
-                owner_cache[dev_id] = {}
-
-        if owner_cache[dev_id]:
+        if dev_id and dev_id in owner_cache:
             record.update(owner_cache[dev_id])
 
 
