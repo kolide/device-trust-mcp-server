@@ -218,6 +218,7 @@ def create_app():
     """Create the Starlette application with Streamable HTTP transport."""
     from contextlib import asynccontextmanager
     from starlette.applications import Starlette
+    from starlette.middleware.cors import CORSMiddleware
     from starlette.routing import Route, Mount
     from starlette.requests import Request
     from starlette.responses import JSONResponse, Response
@@ -240,20 +241,6 @@ def create_app():
         return JSONResponse({"status": "ok"})
 
     async def mcp_asgi_app(scope, receive, send):
-        """ASGI app that handles OPTIONS and delegates to session manager."""
-        if scope["type"] == "http":
-            method = scope.get("method", "")
-            if method == "OPTIONS":
-                response = Response(
-                    status_code=204,
-                    headers={
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-                        "Access-Control-Allow-Headers": "Content-Type, mcp-session-id, last-event-id",
-                    }
-                )
-                await response(scope, receive, send)
-                return
         await session_manager.handle_request(scope, receive, send)
 
     app = Starlette(
@@ -264,6 +251,16 @@ def create_app():
             Mount("/mcp", app=mcp_asgi_app),
             Mount("/sse", app=mcp_asgi_app),
         ],
+    )
+
+    # Restrict CORS to explicitly configured origins. Native MCP clients such as
+    # Claude Desktop do not trigger CORS; this covers browser-based MCP clients.
+    # Configure allowed origins via MCP_CORS_ALLOWED_ORIGINS (comma-separated).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_allowed_origins,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "mcp-session-id", "last-event-id"],
     )
 
     return app
