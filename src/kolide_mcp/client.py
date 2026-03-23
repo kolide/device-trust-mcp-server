@@ -62,7 +62,16 @@ class KolideClient:
         )
 
         if response.status_code >= 400:
-            raise KolideAPIError(response.status_code, response.text)
+            try:
+                body = response.json()
+                message = (
+                    body.get("message")
+                    or body.get("error")
+                    or f"HTTP {response.status_code}"
+                )
+            except Exception:
+                message = f"HTTP {response.status_code}"
+            raise KolideAPIError(response.status_code, message)
 
         if response.status_code == 204:
             return {"success": True}
