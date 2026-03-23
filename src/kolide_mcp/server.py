@@ -1,6 +1,8 @@
 """1Password Device Trust (Kolide K2) MCP Server with Streamable HTTP transport."""
 
+import contextvars
 import json
+import logging
 import os
 from typing import Any
 
@@ -11,6 +13,7 @@ from mcp.types import Resource, TextContent, Tool
 from .client import KolideClient, KolideAPIError
 from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS
 from .config import ServerConfig
+from .logging_config import setup_logging
 from .endpoints import (
     ENDPOINT_MAP,
     EndpointSpec,
@@ -22,6 +25,12 @@ from .resources import RESOURCES, get_resource_content
 server = Server("kolide-1password-device-trust")
 client = KolideClient()
 config = ServerConfig()
+logger = logging.getLogger("kolide_mcp")
+
+# Carries the source IP of the current HTTP request into the MCP tool handler.
+_request_ip: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_ip", default="unknown"
+)
 
 MAX_FETCH_ALL = 10_000
 MAX_FETCH_ALL_PAGES = 50
@@ -171,6 +180,16 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
+    logger.info(
+        "tool_call",
+        extra={
+            "extra": {
+                "tool": name,
+                "arg_keys": sorted(arguments.keys()),
+                "src": _request_ip.get(),
+            }
+        },
+    )
     try:
         handler = COMPOSITE_HANDLERS.get(name)
         if handler:
@@ -268,6 +287,16 @@ def create_app():
         allow_headers=["Content-Type", "mcp-session-id", "last-event-id"],
     )
 
+    # Capture source IP per-request so the tool handler can include it in audit logs.
+    from starlette.middleware.base import BaseHTTPMiddleware as _BaseHTTPMiddleware
+
+    class RequestContextMiddleware(_BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            _request_ip.set(request.client.host if request.client else "unknown")
+            return await call_next(request)
+
+    app.add_middleware(RequestContextMiddleware)
+
     # Require a bearer token on all MCP endpoints. /health is exempt so
     # monitoring can run without credentials.
     if config.auth_token:
@@ -291,6 +320,8 @@ def main():
     """Run the MCP server with Streamable HTTP transport."""
     import sys
     import uvicorn
+
+    setup_logging(config.log_file)
 
     if not config.auth_token:
         print(
