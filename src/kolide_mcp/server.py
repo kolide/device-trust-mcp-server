@@ -191,7 +191,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         if isinstance(result, dict) and "data" in result:
             if enrich:
-                await _enrich_device_owners(result["data"])
+                records = result["data"]
+                cap = config.max_enrich_records
+                await _enrich_device_owners(records[:cap])
+                if len(records) > cap:
+                    result["enrichment_truncated"] = True
+                    result["enrichment_limit"] = cap
             if projected_fields:
                 _apply_field_projection(result, projected_fields)
 
