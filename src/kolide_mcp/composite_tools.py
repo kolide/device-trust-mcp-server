@@ -5,6 +5,20 @@ from datetime import datetime
 from statistics import median
 from typing import Any
 
+# Known reporting table names as of Kolide API version 2023-05-26.
+# When new tables are added to the API, append them here and update the version note.
+# Alternative: replace this allowlist with re.fullmatch(r'[a-z][a-z0-9_]*', table_name)
+# for a format-only check that permits any well-formed name without explicit enumeration.
+KNOWN_REPORTING_TABLES: frozenset[str] = frozenset(
+    {
+        "device_chrome_extensions",
+        "mac_safari_extensions",
+        "device_vscode_extensions",
+        "mac_kernel_extensions",
+        "mac_system_extensions",
+    }
+)
+
 from mcp.types import Tool
 
 from .client import KolideClient
@@ -99,6 +113,12 @@ async def handle_count_table_records_by_field(
     """Count reporting table records grouped by a specified field."""
     table_name = args["table_name"]
     group_by = args["group_by"]
+
+    if table_name not in KNOWN_REPORTING_TABLES:
+        return {
+            "error": f"Unknown table: {table_name!r}.",
+            "valid_tables": sorted(KNOWN_REPORTING_TABLES),
+        }
 
     records = await _fetch_all_pages(
         client, f"/reporting/tables/{table_name}/table_records"
