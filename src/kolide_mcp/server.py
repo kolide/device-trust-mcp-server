@@ -263,12 +263,38 @@ def create_app():
         allow_headers=["Content-Type", "mcp-session-id", "last-event-id"],
     )
 
+    # Require a bearer token on all MCP endpoints. /health is exempt so
+    # monitoring can run without credentials.
+    if config.auth_token:
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class BearerAuthMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                if request.url.path == "/health":
+                    return await call_next(request)
+                auth = request.headers.get("Authorization", "")
+                if not auth.startswith("Bearer ") or auth[7:] != config.auth_token:
+                    return JSONResponse({"error": "Unauthorized"}, status_code=401)
+                return await call_next(request)
+
+        app.add_middleware(BearerAuthMiddleware)
+
     return app
 
 
 def main():
     """Run the MCP server with Streamable HTTP transport."""
+    import sys
     import uvicorn
+
+    if not config.auth_token:
+        print(
+            "ERROR: MCP_AUTH_TOKEN is not set. The MCP server requires an authentication token.\n"
+            "Generate one with:  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+            "Then set it in your .env file and your MCP client configuration.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     print(f"Starting 1Password Device Trust MCP server on {config.host}:{config.port}")
     print(f"MCP endpoint: http://{config.host}:{config.port}/mcp")
