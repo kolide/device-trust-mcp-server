@@ -10,6 +10,7 @@ from mcp.types import Resource, TextContent, Tool
 
 from .client import KolideClient, KolideAPIError
 from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS
+from .config import ServerConfig
 from .endpoints import (
     ENDPOINT_MAP,
     EndpointSpec,
@@ -20,6 +21,7 @@ from .resources import RESOURCES, get_resource_content
 
 server = Server("kolide-1password-device-trust")
 client = KolideClient()
+config = ServerConfig()
 
 MAX_FETCH_ALL = 10_000
 MAX_FETCH_ALL_PAGES = 50
@@ -254,10 +256,8 @@ def create_app():
                 return
         await session_manager.handle_request(scope, receive, send)
 
-    debug = os.getenv("MCP_DEBUG", "false").lower() == "true"
-
     app = Starlette(
-        debug=debug,
+        debug=config.debug,
         lifespan=lifespan,
         routes=[
             Route("/health", health_check, methods=["GET"]),
@@ -273,15 +273,12 @@ def main():
     """Run the MCP server with Streamable HTTP transport."""
     import uvicorn
 
-    host = os.getenv("MCP_HOST", "0.0.0.0")
-    port = int(os.getenv("MCP_PORT", "8000"))
-
-    print(f"Starting 1Password Device Trust MCP server on {host}:{port}")
-    print(f"MCP endpoint: http://{host}:{port}/mcp")
-    print(f"Health check: http://{host}:{port}/health")
+    print(f"Starting 1Password Device Trust MCP server on {config.host}:{config.port}")
+    print(f"MCP endpoint: http://{config.host}:{config.port}/mcp")
+    print(f"Health check: http://{config.host}:{config.port}/health")
 
     app = create_app()
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=config.host, port=config.port)
 
 
 if __name__ == "__main__":
