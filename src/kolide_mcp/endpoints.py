@@ -41,6 +41,7 @@ class EndpointSpec:
     search_examples: list[str] | None = None
     params: list[Param] = field(default_factory=list)
     body_param: str | None = None
+    supports_filters: bool = False
 
 
 # ===== Internal Helpers =====
@@ -570,10 +571,13 @@ ENDPOINTS: list[EndpointSpec] = [
     ),
     EndpointSpec(
         name="get_table_records",
-        description="Fetch records from a Reporting table from 1Password Device Trust (Kolide K2)",
+        description="Fetch records from a Reporting table from 1Password Device Trust (Kolide K2). "
+        "Use kolide_get_reporting_table to discover filterable columns for a given table, "
+        "then pass them via the filters parameter to narrow results server-side",
         method="GET",
         path="/reporting/tables/{table_name}/table_records",
         paginated=True,
+        supports_filters=True,
     ),
 
     # --- Report Queries ---
@@ -707,6 +711,20 @@ def build_tool(spec: EndpointSpec) -> Tool:
         properties[param.name] = prop
         if param.required:
             required.append(param.name)
+
+    # Arbitrary column filters passed as query params (e.g. reporting table records)
+    if spec.supports_filters:
+        properties["filters"] = {
+            "type": "object",
+            "description": (
+                "Key-value pairs to filter results by column. Each key is a "
+                "filterable column name and the value is a single value or a "
+                "comma-separated list. Discover filterable columns for a table "
+                "by calling kolide_get_reporting_table first. "
+                'Example: {"device_id": "123"} or {"device_id": "1,2,3"}'
+            ),
+            "additionalProperties": {"type": "string"},
+        }
 
     # Append search hints to the description
     description = spec.description

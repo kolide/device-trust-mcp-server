@@ -58,6 +58,15 @@ async def _dispatch(spec: EndpointSpec, args: dict[str, Any]) -> Any:
         if spec.searchable_fields:
             params["query"] = args.get("query")
 
+    if spec.supports_filters:
+        filters = args.get("filters")
+        if isinstance(filters, dict):
+            if params is None:
+                params = {}
+            for k, v in filters.items():
+                if v is not None:
+                    params[k] = str(v)
+
     json_data: Any = None
     if spec.method in ("POST", "PATCH", "PUT"):
         if spec.body_param:
