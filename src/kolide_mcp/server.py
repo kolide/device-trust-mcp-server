@@ -11,7 +11,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import Resource, TextContent, Tool
 
 from .client import KolideClient, KolideAPIError
-from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS
+from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS, create_registry
 from .config import ServerConfig
 from .logging_config import setup_logging
 from .endpoints import (
@@ -256,6 +256,12 @@ def create_app():
     @asynccontextmanager
     async def lifespan(app):
         async with session_manager.run():
+            registry = create_registry(client)
+            try:
+                await registry.load()
+            except Exception:
+                logger.warning("Failed to load reporting tables at startup; "
+                               "will retry on first use")
             try:
                 yield
             finally:
