@@ -718,10 +718,10 @@ def build_tool(spec: EndpointSpec) -> Tool:
             "type": "object",
             "description": (
                 "Key-value pairs to filter results by column. Each key is a "
-                "filterable column name and the value is a single value or a "
-                "comma-separated list. Discover filterable columns for a table "
-                "by calling kolide_get_reporting_table first. "
-                'Example: {"device_id": "123"} or {"device_id": "1,2,3"}'
+                "filterable column name and the value is a single ID or a "
+                "comma-separated list of IDs. Discover filterable columns for "
+                "a table by calling kolide_get_reporting_table first. "
+                'Example: {"device_id": "123"} or {"device_id": "123,456"}'
             ),
             "additionalProperties": {"type": "string"},
         }

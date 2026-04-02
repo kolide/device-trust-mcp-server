@@ -63,9 +63,17 @@ async def _dispatch(spec: EndpointSpec, args: dict[str, Any]) -> Any:
         if isinstance(filters, dict):
             if params is None:
                 params = {}
+            clauses = []
             for k, v in filters.items():
-                if v is not None:
-                    params[k] = str(v)
+                if v is None:
+                    continue
+                v_str = str(v)
+                if "," in v_str:
+                    clauses.append(f"{k}:[{v_str}]")
+                else:
+                    clauses.append(f"{k}:{v_str}")
+            if clauses:
+                params["query"] = " ".join(clauses)
 
     json_data: Any = None
     if spec.method in ("POST", "PATCH", "PUT"):
