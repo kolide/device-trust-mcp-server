@@ -38,5 +38,4 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# uv
-uv.lock
+# uv artifacts (uv.lock is intentionally tracked for reproducible installs)

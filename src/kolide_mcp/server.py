@@ -1,6 +1,8 @@
 """1Password Device Trust (Kolide K2) MCP Server with Streamable HTTP transport."""
 
+import contextvars
 import json
+import logging
 import os
 from typing import Any
 
@@ -9,7 +11,9 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import Resource, TextContent, Tool
 
 from .client import KolideClient, KolideAPIError
-from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS
+from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS, create_registry
+from .config import ServerConfig
+from .logging_config import setup_logging
 from .endpoints import (
     ENDPOINT_MAP,
     EndpointSpec,
@@ -20,6 +24,13 @@ from .resources import RESOURCES, get_resource_content
 
 server = Server("kolide-1password-device-trust")
 client = KolideClient()
+config = ServerConfig()
+logger = logging.getLogger("kolide_mcp")
+
+# Carries the source IP of the current HTTP request into the MCP tool handler.
+_request_ip: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_ip", default="unknown"
+)
 
 MAX_FETCH_ALL = 10_000
 MAX_FETCH_ALL_PAGES = 50
@@ -46,6 +57,23 @@ async def _dispatch(spec: EndpointSpec, args: dict[str, Any]) -> Any:
         }
         if spec.searchable_fields:
             params["query"] = args.get("query")
+
+    if spec.supports_filters:
+        filters = args.get("filters")
+        if isinstance(filters, dict):
+            if params is None:
+                params = {}
+            clauses = []
+            for k, v in filters.items():
+                if v is None:
+                    continue
+                v_str = str(v)
+                if "," in v_str:
+                    clauses.append(f"{k}:[{v_str}]")
+                else:
+                    clauses.append(f"{k}:{v_str}")
+            if clauses:
+                params["query"] = " ".join(clauses)
 
     json_data: Any = None
     if spec.method in ("POST", "PATCH", "PUT"):
@@ -169,6 +197,16 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
+    logger.info(
+        "tool_call",
+        extra={
+            "extra": {
+                "tool": name,
+                "arg_keys": sorted(arguments.keys()),
+                "src": _request_ip.get(),
+            }
+        },
+    )
     try:
         handler = COMPOSITE_HANDLERS.get(name)
         if handler:
@@ -189,7 +227,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         if isinstance(result, dict) and "data" in result:
             if enrich:
-                await _enrich_device_owners(result["data"])
+                records = result["data"]
+                cap = config.max_enrich_records
+                await _enrich_device_owners(records[:cap])
+                if len(records) > cap:
+                    result["enrichment_truncated"] = True
+                    result["enrichment_limit"] = cap
             if projected_fields:
                 _apply_field_projection(result, projected_fields)
 
@@ -216,6 +259,7 @@ def create_app():
     """Create the Starlette application with Streamable HTTP transport."""
     from contextlib import asynccontextmanager
     from starlette.applications import Starlette
+    from starlette.middleware.cors import CORSMiddleware
     from starlette.routing import Route, Mount
     from starlette.requests import Request
     from starlette.responses import JSONResponse, Response
@@ -229,6 +273,12 @@ def create_app():
     @asynccontextmanager
     async def lifespan(app):
         async with session_manager.run():
+            registry = create_registry(client)
+            try:
+                await registry.load()
+            except Exception:
+                logger.warning("Failed to load reporting tables at startup; "
+                               "will retry on first use")
             try:
                 yield
             finally:
@@ -238,26 +288,10 @@ def create_app():
         return JSONResponse({"status": "ok"})
 
     async def mcp_asgi_app(scope, receive, send):
-        """ASGI app that handles OPTIONS and delegates to session manager."""
-        if scope["type"] == "http":
-            method = scope.get("method", "")
-            if method == "OPTIONS":
-                response = Response(
-                    status_code=204,
-                    headers={
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-                        "Access-Control-Allow-Headers": "Content-Type, mcp-session-id, last-event-id",
-                    }
-                )
-                await response(scope, receive, send)
-                return
         await session_manager.handle_request(scope, receive, send)
 
-    debug = os.getenv("MCP_DEBUG", "false").lower() == "true"
-
     app = Starlette(
-        debug=debug,
+        debug=config.debug,
         lifespan=lifespan,
         routes=[
             Route("/health", health_check, methods=["GET"]),
@@ -266,22 +300,67 @@ def create_app():
         ],
     )
 
+    # Restrict CORS to explicitly configured origins. Native MCP clients such as
+    # Claude Desktop do not trigger CORS; this covers browser-based MCP clients.
+    # Configure allowed origins via MCP_CORS_ALLOWED_ORIGINS (comma-separated).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_allowed_origins,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "mcp-session-id", "last-event-id"],
+    )
+
+    # Capture source IP per-request so the tool handler can include it in audit logs.
+    from starlette.middleware.base import BaseHTTPMiddleware as _BaseHTTPMiddleware
+
+    class RequestContextMiddleware(_BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            _request_ip.set(request.client.host if request.client else "unknown")
+            return await call_next(request)
+
+    app.add_middleware(RequestContextMiddleware)
+
+    # Require a bearer token on all MCP endpoints. /health is exempt so
+    # monitoring can run without credentials.
+    if config.auth_token:
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        class BearerAuthMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request, call_next):
+                if request.url.path == "/health":
+                    return await call_next(request)
+                auth = request.headers.get("Authorization", "")
+                if not auth.startswith("Bearer ") or auth[7:] != config.auth_token:
+                    return JSONResponse({"error": "Unauthorized"}, status_code=401)
+                return await call_next(request)
+
+        app.add_middleware(BearerAuthMiddleware)
+
     return app
 
 
 def main():
     """Run the MCP server with Streamable HTTP transport."""
+    import sys
     import uvicorn
 
-    host = os.getenv("MCP_HOST", "0.0.0.0")
-    port = int(os.getenv("MCP_PORT", "8000"))
+    setup_logging(config.log_file)
 
-    print(f"Starting 1Password Device Trust MCP server on {host}:{port}")
-    print(f"MCP endpoint: http://{host}:{port}/mcp")
-    print(f"Health check: http://{host}:{port}/health")
+    if not config.auth_token:
+        print(
+            "ERROR: MCP_AUTH_TOKEN is not set. The MCP server requires an authentication token.\n"
+            "Generate one with:  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+            "Then set it in your .env file and your MCP client configuration.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Starting 1Password Device Trust MCP server on {config.host}:{config.port}")
+    print(f"MCP endpoint: http://{config.host}:{config.port}/mcp")
+    print(f"Health check: http://{config.host}:{config.port}/health")
 
     app = create_app()
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=config.host, port=config.port)
 
 
 if __name__ == "__main__":
