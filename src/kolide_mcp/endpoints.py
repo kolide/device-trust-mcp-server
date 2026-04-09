@@ -428,13 +428,17 @@ ENDPOINTS: list[EndpointSpec] = [
         method="POST",
         path="/live_query_campaigns",
         params=[
-            Param("query", "The osquery SQL query to run", required=True),
+            Param("sql", "The osquery SQL query to run", required=True),
             Param("name", "Optional name for the campaign"),
             Param("description", "Optional description"),
             Param("device_ids", "Optional list of device IDs to target",
                   type="array", items_type="string"),
             Param("device_group_ids", "Optional list of device group IDs to target",
                   type="array", items_type="string"),
+            Param("target_macs", "Target all macOS devices"),
+            Param("target_windows_devices", "Target all Windows devices"),
+            Param("target_linux_devices", "Target all Linux devices"),
+            Param("target_all_devices", "Target all devices regardless of platform"),
         ],
     ),
     EndpointSpec(
