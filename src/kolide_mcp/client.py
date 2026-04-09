@@ -24,12 +24,13 @@ class KolideClient:
     connections when the server shuts down.
     """
 
-    BASE_URL = "https://api.kolide.com"
+    DEFAULT_BASE_URL = "https://api.kolide.com"
     API_VERSION = "2023-05-26"
 
     def __init__(self) -> None:
         load_dotenv(override=True)
-        self._http = httpx.AsyncClient(base_url=self.BASE_URL, timeout=30.0)
+        self.base_url = os.getenv("KOLIDE_API_URL", self.DEFAULT_BASE_URL)
+        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
 
     def _get_headers(self) -> dict[str, str]:
         api_key = os.getenv("KOLIDE_API_KEY")
@@ -62,7 +63,16 @@ class KolideClient:
         )
 
         if response.status_code >= 400:
-            raise KolideAPIError(response.status_code, response.text)
+            try:
+                body = response.json()
+                message = (
+                    body.get("message")
+                    or body.get("error")
+                    or f"HTTP {response.status_code}"
+                )
+            except Exception:
+                message = f"HTTP {response.status_code}"
+            raise KolideAPIError(response.status_code, message)
 
         if response.status_code == 204:
             return {"success": True}

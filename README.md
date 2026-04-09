@@ -4,12 +4,16 @@ An MCP (Model Context Protocol) server that exposes the 1Password Device Trust A
 
 ## Features
 
-- Full coverage of 1Password Device Trust (Kolide K2) API endpoints (56 endpoint tools + 2 composite analytical tools)
+- Full coverage of 1Password Device Trust (Kolide K2) API endpoints (56 endpoint tools + 3 composite analytical tools)
 - **Auto-pagination** (`fetch_all`) to retrieve complete datasets in a single tool call
 - **Field projection** (`fields`) to return only the columns you need, reducing response size
 - **Device owner enrichment** (`enrich_device_owner`) to automatically resolve device IDs to owner names/emails
 - **Composite analytical tools** for common aggregation tasks (resolution time stats, grouped counts)
+- **Dynamic reporting table validation** — table names are fetched from the API at startup and refreshable on demand
 - **MCP Resources** providing search syntax docs, reporting table guides, and workflow references
+- **Bearer token authentication** on all MCP endpoints
+- **Structured JSON audit logging** of every tool invocation
+- Binds to localhost only by default; configurable CORS allowlist
 - Streamable HTTP transport for easy integration with AI tools
 - API key loaded fresh on each request (supports `.env` file updates without restart)
 
@@ -33,18 +37,31 @@ pip install -e .
 
 ### Environment Variables
 
-Create a `.env` file in the project directory (or set environment variables):
+Copy the example and fill in your values:
 
 ```bash
-# Required: Your Kolide API key
-KOLIDE_API_KEY=your-api-key-here
-
-# Optional: Server configuration
-MCP_HOST=0.0.0.0  # Default: 0.0.0.0
-MCP_PORT=8000     # Default: 8000
+cp .env.example .env
 ```
 
-The API key is read fresh on each tool call, so you can update it in the `.env` file without restarting the server.
+**Required variables:**
+
+| Variable | Description |
+|---|---|
+| `KOLIDE_API_KEY` | Your Kolide API key (Dashboard > Settings > API Keys) |
+| `MCP_AUTH_TOKEN` | Bearer token for MCP endpoint access. Generate one with: `python -c "import secrets; print(secrets.token_hex(32))"` |
+
+**Optional variables:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_HOST` | `127.0.0.1` | Bind address. Only change if you need remote access. |
+| `MCP_PORT` | `8000` | Listen port |
+| `MCP_CORS_ALLOWED_ORIGINS` | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
+| `MCP_MAX_ENRICH_RECORDS` | `500` | Max records enriched per `enrich_device_owner` call |
+| `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stdout) |
+| `MCP_DEBUG` | `false` | Starlette debug mode (development only) |
+
+The Kolide API key is read fresh on each tool call, so you can update it in the `.env` file without restarting the server.
 
 ## Running the Server
 
@@ -62,10 +79,12 @@ python -m kolide_mcp.server
 
 The server will start and display:
 ```
-Starting 1Password Device Trust MCP server on 0.0.0.0:8000
-MCP endpoint: http://0.0.0.0:8000/mcp
-Health check: http://0.0.0.0:8000/health
+Starting 1Password Device Trust MCP server on 127.0.0.1:8000
+MCP endpoint: http://127.0.0.1:8000/mcp
+Health check: http://127.0.0.1:8000/health
 ```
+
+> **Note:** The server refuses to start if `MCP_AUTH_TOKEN` is not set.
 
 ## Connecting AI Tools
 
@@ -77,7 +96,10 @@ Add to `.cursor/mcp.json` in your project or global config:
 {
   "mcpServers": {
     "kolide": {
-      "url": "http://localhost:8000/mcp"
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN"
+      }
     }
   }
 }
@@ -85,13 +107,20 @@ Add to `.cursor/mcp.json` in your project or global config:
 
 ### Claude Desktop
 
+Claude Desktop's `claude_desktop_config.json` only supports stdio (subprocess) servers — it does not connect to remote HTTP URLs configured in the JSON file. To bridge the gap, use [`mcp-remote`](https://www.npmjs.com/package/mcp-remote), which wraps the HTTP server as a stdio process that Claude Desktop can manage.
+
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "kolide": {
-      "url": "http://localhost:8000/mcp"
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "http://localhost:8000/mcp",
+        "--header", "Authorization: Bearer YOUR_MCP_AUTH_TOKEN"
+      ]
     }
   }
 }
@@ -99,7 +128,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ### Other MCP Clients
 
-Connect to the MCP endpoint at `http://localhost:8000/mcp`. The server uses the Streamable HTTP transport which accepts both GET and POST requests.
+Connect to the MCP endpoint at `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport. Clients that only support stdio can use `mcp-remote` as shown in the Claude Desktop example above.
+
+Replace `YOUR_MCP_AUTH_TOKEN` in all examples with the same value you set in `MCP_AUTH_TOKEN`.
 
 ## Enhanced Parameters for List Tools
 
@@ -142,12 +173,13 @@ Automatically resolve `device_id` or `device_information` fields to the register
 
 ## Available Tools
 
-The server exposes 58 tools: 56 endpoint tools covering all API functionality, plus 2 composite analytical tools.
+The server exposes 59 tools: 56 endpoint tools covering all API functionality, plus 3 composite/utility tools.
 
-### Composite Analytical Tools
+### Composite & Utility Tools
 
 - `kolide_issue_resolution_stats` - Compute resolution time statistics (avg, median, min, max, p90) for issues of a specific check. Automatically fetches all pages.
 - `kolide_count_table_records_by_field` - Count records in a reporting table grouped by a field. Returns ranked results. Useful for "which device has the most extensions?" style questions.
+- `kolide_refresh_reporting_tables` - Refresh the cached list of valid reporting table names from the API. Use if a table name is unexpectedly rejected.
 
 ### Organization
 - `kolide_whoami` - Get organization information

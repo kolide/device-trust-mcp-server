@@ -1,5 +1,9 @@
 """Composite analytical tools that combine multiple API calls with aggregation."""
 
+from __future__ import annotations
+
+import logging
+import time
 from collections import Counter
 from datetime import datetime
 from statistics import median
@@ -8,6 +12,70 @@ from typing import Any
 from mcp.types import Tool
 
 from .client import KolideClient
+
+logger = logging.getLogger("kolide_mcp")
+
+
+class ReportingTableRegistry:
+    """Dynamically loaded registry of valid reporting table names.
+
+    Fetched from /reporting/tables at server startup. Supports on-demand
+    refresh via an MCP tool and automatic single-retry on cache miss
+    (rate-limited to avoid excessive API calls from typos).
+    """
+
+    REFRESH_COOLDOWN_SECONDS = 60
+
+    def __init__(self, client: KolideClient) -> None:
+        self._client = client
+        self._tables: set[str] = set()
+        self._last_refresh: float = 0.0
+
+    async def load(self) -> list[str]:
+        """Fetch all reporting table names from the Kolide API."""
+        all_tables = await _fetch_all_pages(self._client, "/reporting/tables")
+        self._tables = {t["name"] for t in all_tables if "name" in t}
+        self._last_refresh = time.monotonic()
+        logger.info(
+            "reporting_tables_loaded",
+            extra={"extra": {"count": len(self._tables)}},
+        )
+        return sorted(self._tables)
+
+    async def refresh(self) -> list[str]:
+        """Force-refresh the table list regardless of cooldown."""
+        return await self.load()
+
+    async def validate(self, table_name: str) -> bool:
+        """Return True if table_name is known. Retries once on miss if
+        the cooldown has elapsed, so newly added tables are picked up
+        without a server restart."""
+        if table_name in self._tables:
+            return True
+        elapsed = time.monotonic() - self._last_refresh
+        if elapsed >= self.REFRESH_COOLDOWN_SECONDS:
+            await self.load()
+            return table_name in self._tables
+        return False
+
+    @property
+    def table_names(self) -> frozenset[str]:
+        return frozenset(self._tables)
+
+
+_registry: ReportingTableRegistry | None = None
+
+
+def create_registry(client: KolideClient) -> ReportingTableRegistry:
+    """Create the module-level registry. Called once from server.py lifespan."""
+    global _registry
+    _registry = ReportingTableRegistry(client)
+    return _registry
+
+
+def get_registry() -> ReportingTableRegistry:
+    assert _registry is not None, "ReportingTableRegistry not initialized"
+    return _registry
 
 MAX_FETCH_ALL = 10_000
 MAX_FETCH_ALL_PAGES = 50
@@ -92,6 +160,16 @@ async def handle_issue_resolution_stats(
     }
 
 
+async def handle_refresh_reporting_tables(
+    client: KolideClient,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Refresh the cached list of valid reporting table names."""
+    registry = get_registry()
+    tables = await registry.refresh()
+    return {"tables": tables, "count": len(tables)}
+
+
 async def handle_count_table_records_by_field(
     client: KolideClient,
     args: dict[str, Any],
@@ -99,6 +177,13 @@ async def handle_count_table_records_by_field(
     """Count reporting table records grouped by a specified field."""
     table_name = args["table_name"]
     group_by = args["group_by"]
+
+    registry = get_registry()
+    if not await registry.validate(table_name):
+        return {
+            "error": f"Unknown table: {table_name!r}.",
+            "valid_tables": sorted(registry.table_names),
+        }
 
     records = await _fetch_all_pages(
         client, f"/reporting/tables/{table_name}/table_records"
@@ -138,6 +223,18 @@ async def handle_count_table_records_by_field(
 
 
 COMPOSITE_TOOLS: list[Tool] = [
+    Tool(
+        name="kolide_refresh_reporting_tables",
+        description=(
+            "Refresh the cached list of valid reporting table names from the "
+            "Kolide API. Returns the full updated list. Use this if you suspect "
+            "the table list is outdated or if a table name was unexpectedly rejected."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
     Tool(
         name="kolide_issue_resolution_stats",
         description=(
@@ -205,6 +302,7 @@ COMPOSITE_TOOLS: list[Tool] = [
 ]
 
 COMPOSITE_HANDLERS: dict[str, Any] = {
+    "kolide_refresh_reporting_tables": handle_refresh_reporting_tables,
     "kolide_issue_resolution_stats": handle_issue_resolution_stats,
     "kolide_count_table_records_by_field": handle_count_table_records_by_field,
 }
