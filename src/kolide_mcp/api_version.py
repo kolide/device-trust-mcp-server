@@ -1,7 +1,7 @@
 """Kolide REST API version sent on every request as ``X-Kolide-Api-Version``.
 
 Kolide publishes multiple dated API versions; this server supports a fixed set.
-See https://api.kolide.com (Developers → API) and ``openapi/openapi*.json`` snapshots.
+See https://www.kolide.com/docs/developers/api (Developers → API) and ``openapi/openapi*.json`` snapshots.
 """
 
 from __future__ import annotations
