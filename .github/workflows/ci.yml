@@ -1,0 +1,61 @@
+# CI tuned for Dependabot / dependency PRs:
+# - `uv lock --check`: pyproject.toml matches uv.lock
+# - `uv sync --frozen`: installs exactly what's locked (reproducible)
+# - unittest + import smoke test on oldest + recent supported Python
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile-and-install:
+    name: Lockfile check · sync --frozen · smoke import
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Assert lockfile matches pyproject.toml
+        run: uv lock --check
+
+      - name: Install from lockfile (no lockfile mutations)
+        run: uv sync --frozen
+
+      - name: Import application (packaging smoke test)
+        run: uv run python -c "import kolide_mcp.server"
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install deps
+        run: uv sync --frozen --python ${{ matrix.python-version }}
+
+      - name: Unit tests
+        run: uv run --python ${{ matrix.python-version }} python -m unittest discover -s tests -v
