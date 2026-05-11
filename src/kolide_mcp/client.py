@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from .api_version import get_kolide_api_version
+
 
 class KolideAPIError(Exception):
     """Exception raised for Kolide API errors."""
@@ -25,7 +27,6 @@ class KolideClient:
     """
 
     DEFAULT_BASE_URL = "https://api.kolide.com"
-    API_VERSION = "2023-05-26"
 
     def __init__(self) -> None:
         load_dotenv(override=True)
@@ -38,7 +39,7 @@ class KolideClient:
             raise KolideAPIError(401, "KOLIDE_API_KEY environment variable not set")
         return {
             "Authorization": f"Bearer {api_key}",
-            "x-kolide-api-version": self.API_VERSION,
+            "x-kolide-api-version": get_kolide_api_version(),
             "Content-Type": "application/json",
         }
 

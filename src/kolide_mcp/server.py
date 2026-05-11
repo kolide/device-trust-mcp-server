@@ -10,7 +10,8 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import Resource, TextContent, Tool
 
-from .client import KolideClient, KolideAPIError
+from .api_version import get_kolide_api_version
+from .client import KolideAPIError, KolideClient
 from .composite_tools import COMPOSITE_HANDLERS, COMPOSITE_TOOLS, create_registry
 from .config import ServerConfig
 from .logging_config import setup_logging
@@ -18,6 +19,7 @@ from .endpoints import (
     ENDPOINT_MAP,
     EndpointSpec,
     build_all_tools,
+    endpoint_available_for_api_version,
     get_path_params,
 )
 from .resources import RESOURCES, get_resource_content
@@ -35,7 +37,10 @@ _request_ip: contextvars.ContextVar[str] = contextvars.ContextVar(
 MAX_FETCH_ALL = 10_000
 MAX_FETCH_ALL_PAGES = 50
 
-TOOLS = build_all_tools() + COMPOSITE_TOOLS
+
+def tools_for_current_api_version() -> list[Tool]:
+    """MCP tools for the active ``KOLIDE_API_VERSION`` (endpoint tools + composite)."""
+    return build_all_tools(get_kolide_api_version()) + COMPOSITE_TOOLS
 
 
 def _format_result(result: Any) -> str:
@@ -174,7 +179,7 @@ def _coerce_field_list(value: Any) -> list[str]:
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List all available tools."""
-    return TOOLS
+    return tools_for_current_api_version()
 
 
 @server.call_tool()
@@ -199,6 +204,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         spec = ENDPOINT_MAP.get(name)
         if not spec:
             raise ValueError(f"Unknown tool: {name}")
+
+        api_v = get_kolide_api_version()
+        if not endpoint_available_for_api_version(spec, api_v):
+            allowed = ", ".join(sorted(spec.api_versions or ()))
+            raise ValueError(
+                f"Tool {name!r} is not available for Kolide API version {api_v!r}. "
+                f"This endpoint requires KOLIDE_API_VERSION to be one of: {allowed}."
+            )
 
         fetch_all = _coerce_bool(arguments.get("fetch_all", False))
         enrich = _coerce_bool(arguments.get("enrich_device_owner", False))
@@ -338,7 +351,17 @@ def main():
         )
         sys.exit(1)
 
+    try:
+        kolide_version = get_kolide_api_version()
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     print(f"Starting 1Password Device Trust MCP server on {config.host}:{config.port}")
+    print(
+        f"Kolide REST API version (X-Kolide-Api-Version): {kolide_version} "
+        f"(set KOLIDE_API_VERSION to switch; see kolide://docs/api-versions)"
+    )
     print(f"MCP endpoint: http://{config.host}:{config.port}/mcp")
     print(f"Health check: http://{config.host}:{config.port}/health")
 
