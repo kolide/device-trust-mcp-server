@@ -30,7 +30,7 @@ def _build_user_agent(main_sha: str = MAIN_SHA) -> str:
         return PRODUCT_NAME
     if sha == "fork":
         return f"{PRODUCT_NAME}/fork"
-    return f"{PRODUCT_NAME}/sha:{sha[:9]}"
+    return f"{PRODUCT_NAME}/{sha[:9]}"
 
 
 class KolideAPIError(Exception):

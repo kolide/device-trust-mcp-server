@@ -15,11 +15,11 @@ from kolide_mcp.client import (
 class TestBuildUserAgent:
     def test_full_sha_is_truncated_to_nine_chars(self):
         ua = _build_user_agent("af48dd0915c2e6b7d0e0f7c8a1b2c3d4e5f60718")
-        assert ua == f"{PRODUCT_NAME}/sha:af48dd091"
+        assert ua == f"{PRODUCT_NAME}/af48dd091"
 
     def test_short_sha_passed_through(self):
         ua = _build_user_agent("1a2b3c4")
-        assert ua == f"{PRODUCT_NAME}/sha:1a2b3c4"
+        assert ua == f"{PRODUCT_NAME}/1a2b3c4"
 
     def test_unknown_sha_emits_bare_product(self):
         ua = _build_user_agent("unknown")
@@ -43,7 +43,7 @@ class TestBuildUserAgent:
 
     def test_header_shape(self):
         ua = _build_user_agent("af48dd091")
-        pattern = re.compile(rf"^{re.escape(PRODUCT_NAME)}/sha:[0-9a-f]{{1,9}}$")
+        pattern = re.compile(rf"^{re.escape(PRODUCT_NAME)}/[0-9a-f]{{1,9}}$")
         assert pattern.match(ua), f"User-Agent {ua!r} does not match expected shape"
 
     def test_product_name_contains_no_spaces(self):
