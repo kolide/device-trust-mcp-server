@@ -34,6 +34,12 @@ ENV/
 # Environment files
 .env
 
+# Agent dotfiles — populated from the .*.example/ template directories.
+# The example dirs themselves are committed; the real configs hold secrets.
+.cursor/
+.claude/
+.vscode/
+
 # OS
 .DS_Store
 Thumbs.db

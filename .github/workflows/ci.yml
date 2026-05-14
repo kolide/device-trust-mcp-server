@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync project
+        run: uv sync
+
+      - name: Smoke-test the server
+        env:
+          MCP_AUTH_TOKEN: ci-smoke-test-token
+          MCP_HOST: 127.0.0.1
+          MCP_PORT: "8000"
+        run: |
+          uv run kolide-mcp &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8000/health > /tmp/health.json; then
+              echo "Server is up:"
+              cat /tmp/health.json
+              grep -q '"status"' /tmp/health.json && grep -q '"ok"' /tmp/health.json
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          echo "Server did not become healthy in time" >&2
+          exit 1
