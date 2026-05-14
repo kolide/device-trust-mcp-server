@@ -2,9 +2,11 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 from mcp.types import Tool
+
+from .api_version import SUPPORTED_KOLIDE_API_VERSIONS
 
 
 # ===== Data Structures =====
@@ -41,6 +43,10 @@ class EndpointSpec:
     search_examples: list[str] | None = None
     params: list[Param] = field(default_factory=list)
     body_param: str | None = None
+    #: If ``None``, this tool is exposed for every supported Kolide API version.
+    #: If set, the tool is listed and callable only when ``KOLIDE_API_VERSION`` is
+    #: one of these dated version strings (e.g. ``frozenset({"2026-04-07"})``).
+    api_versions: frozenset[str] | None = None
 
 
 # ===== Internal Helpers =====
@@ -405,6 +411,41 @@ ENDPOINTS: list[EndpointSpec] = [
             Param("configuration", "The configuration to update", type="object", required=True),
         ],
     ),
+    EndpointSpec(
+        name="create_external_check_run",
+        description=(
+            "Create a new External check run for a Device Trust Check in 1Password "
+            "Device Trust (Kolide K2). Pass exactly one of device_id, person_id, or "
+            "person_email, and provide check_data per the API."
+        ),
+        method="POST",
+        path="/checks/{check_id}/runs",
+        params=[
+            Param(
+                "device_id",
+                "The ID of the device. Use exactly one of device_id, person_id, or person_email.",
+                type="integer",
+            ),
+            Param(
+                "person_id",
+                "The ID of the person. Use exactly one of device_id, person_id, or person_email.",
+                type="integer",
+            ),
+            Param(
+                "person_email",
+                "The email of the person. Use exactly one of device_id, person_id, or person_email. "
+                "None of the three is marked required at the schema level so the LLM can choose; "
+                "the Kolide API enforces that exactly one is provided.",
+                type="string",
+            ),
+            Param(
+                "check_data",
+                "JSON string for the check result; must include KOLIDE_CHECK_STATUS "
+                "(FAIL, PASS, UNKNOWN, INAPPLICABLE, or ERROR). Optional extra metadata allowed.",
+                required=True,
+            ),
+        ],
+    ),
 
     # --- Live Query Campaigns ---
     EndpointSpec(
@@ -603,6 +644,18 @@ ENDPOINTS: list[EndpointSpec] = [
     ),
 ]
 
+_SUPPORTED_VERSIONS_SET = frozenset(SUPPORTED_KOLIDE_API_VERSIONS)
+
+for _spec in ENDPOINTS:
+    if _spec.api_versions is None:
+        continue
+    _unknown = set(_spec.api_versions) - _SUPPORTED_VERSIONS_SET
+    if _unknown:
+        raise ValueError(
+            f"Endpoint {_spec.name!r} api_versions contains unsupported strings: "
+            f"{sorted(_unknown)!r}. Supported: {sorted(_SUPPORTED_VERSIONS_SET)!r}"
+        )
+
 ENDPOINT_MAP: dict[str, EndpointSpec] = {
     f"kolide_{spec.name}": spec for spec in ENDPOINTS
 }
@@ -718,6 +771,9 @@ def build_tool(spec: EndpointSpec) -> Tool:
         description += ". Use the query parameter to filter results by searchable fields"
     elif spec.paginated:
         description += ". This endpoint does not support search queries"
+    if spec.api_versions is not None:
+        vers = ", ".join(sorted(spec.api_versions))
+        description += f" (Kolide API {vers} only)"
 
     return Tool(
         name=f"kolide_{spec.name}",
@@ -730,6 +786,29 @@ def build_tool(spec: EndpointSpec) -> Tool:
     )
 
 
-def build_all_tools() -> list[Tool]:
-    """Build MCP ``Tool`` objects for every registered endpoint."""
-    return [build_tool(spec) for spec in ENDPOINTS]
+def endpoint_available_for_api_version(spec: EndpointSpec, api_version: str) -> bool:
+    """Return whether *spec* should be exposed for *api_version*."""
+    if spec.api_versions is None:
+        return True
+    return api_version in spec.api_versions
+
+
+def iter_endpoints_for_api_version(api_version: str) -> Iterator[EndpointSpec]:
+    """Yield endpoint specs that apply to *api_version*."""
+    for spec in ENDPOINTS:
+        if endpoint_available_for_api_version(spec, api_version):
+            yield spec
+
+
+def build_all_tools(api_version: str | None = None) -> list[Tool]:
+    """Build MCP ``Tool`` objects for endpoints valid at *api_version*.
+
+    When *api_version* is ``None`` the currently configured Kolide API version
+    (from ``KOLIDE_API_VERSION``) is used. The argument is kept for callers that
+    need to build the tool list for a specific version (e.g. tests).
+    """
+    if api_version is None:
+        from .api_version import get_kolide_api_version
+
+        api_version = get_kolide_api_version()
+    return [build_tool(spec) for spec in iter_endpoints_for_api_version(api_version)]

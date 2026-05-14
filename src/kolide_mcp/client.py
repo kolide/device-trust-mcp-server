@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from .api_version import get_kolide_api_version
+
 try:
     from kolide_mcp._main_sha import MAIN_SHA
 except ImportError:
@@ -51,7 +53,6 @@ class KolideClient:
     """
 
     DEFAULT_BASE_URL = "https://api.kolide.com"
-    API_VERSION = "2023-05-26"
     USER_AGENT = _build_user_agent()
 
     def __init__(self) -> None:
@@ -63,9 +64,16 @@ class KolideClient:
         api_key = os.getenv("KOLIDE_API_KEY")
         if not api_key:
             raise KolideAPIError(401, "KOLIDE_API_KEY environment variable not set")
+        try:
+            api_version = get_kolide_api_version()
+        except ValueError as exc:
+            # Re-surface invalid KOLIDE_API_VERSION as a Kolide-style error so it
+            # flows through the same handling as other upstream failures instead
+            # of bubbling up as a raw ValueError from the hot request path.
+            raise KolideAPIError(500, str(exc)) from exc
         return {
             "Authorization": f"Bearer {api_key}",
-            "x-kolide-api-version": self.API_VERSION,
+            "x-kolide-api-version": api_version,
             "User-Agent": self.USER_AGENT,
             "Content-Type": "application/json",
         }

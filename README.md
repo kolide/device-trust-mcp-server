@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that exposes the 1Password Device Trust A
 
 ## Features
 
-- Full coverage of 1Password Device Trust (Kolide K2) API endpoints (56 endpoint tools + 3 composite analytical tools)
+- Full coverage of 1Password Device Trust (Kolide K2) API endpoints (57 endpoint tools + 3 composite analytical tools)
 - **Auto-pagination** (`fetch_all`) to retrieve complete datasets in a single tool call
 - **Field projection** (`fields`) to return only the columns you need, reducing response size
 - **Device owner enrichment** (`enrich_device_owner`) to automatically resolve device IDs to owner names/emails
@@ -15,7 +15,32 @@ An MCP (Model Context Protocol) server that exposes the 1Password Device Trust A
 - **Structured JSON audit logging** of every tool invocation
 - Binds to localhost only by default; configurable CORS allowlist
 - Streamable HTTP transport for easy integration with AI tools
-- API key loaded fresh on each request (supports `.env` file updates without restart)
+- API key and Kolide API version (`KOLIDE_API_VERSION`) read fresh on each request (supports `.env` updates without restart)
+
+## Maintaining API parity
+
+The server does **not** load OpenAPI at runtime. Tools are defined in `src/kolide_mcp/endpoints.py` (`ENDPOINTS`), and the HTTP client sends `x-kolide-api-version` from `get_kolide_api_version()` in `src/kolide_mcp/api_version.py` (overridable via **`KOLIDE_API_VERSION`** in your environment or `.env`).
+
+**Workflow when the Kolide API changes:**
+
+1. **`openapi/`** — Treat `openapi/openapi*.json` as the canonical REST contract snapshot. There is one file per supported version (e.g. `openapi2026-04-07.json`); CI checks `ENDPOINTS` against **all** of them.
+2. **Implementation** — For any real API delta reflected in those JSON files, update `ENDPOINTS` (and `composite_tools.py` / `resources.py` if needed). Set **`KOLIDE_API_VERSION`** in `.env` to the version line you run against.
+3. **Verification** — CI runs drift checks so `ENDPOINTS` stays aligned with the pinned OpenAPI file (path templates are compared with parameter names ignored). To run the same tests locally after `uv sync`:
+
+   ```bash
+   uv run python -m unittest discover -s tests -v
+   ```
+
+If the pinned OpenAPI file gains operations you do not want as MCP tools yet, add the normalized ``(METHOD, path)`` pair to ``OPENAPI_OPERATIONS_WITHOUT_MCP_TOOL`` in `tests/test_openapi_drift.py` and document why.
+
+**Endpoints that exist only on some API versions**
+
+Kolide may expose routes on one dated API line but not another. In `EndpointSpec`, set **`api_versions`** to a `frozenset` of version strings (must be a subset of `SUPPORTED_KOLIDE_API_VERSIONS` in `api_version.py`):
+
+- **`api_versions=None`** (default) — tool is listed and callable for every supported version, as long as that version’s OpenAPI snapshot includes the operation.
+- **`api_versions=frozenset({"2026-04-07"})`** — tool appears in `list_tools` and works only when `KOLIDE_API_VERSION` is `2026-04-07`; other versions skip it in drift checks and get a clear error if invoked anyway.
+
+After adding a new version line to the server, extend `SUPPORTED_KOLIDE_API_VERSIONS`, add `openapi<version>.json`, and adjust `api_versions` on affected specs.
 
 ## Installation
 
@@ -54,6 +79,8 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |---|---|---|
+| `KOLIDE_API_URL` | `https://api.kolide.com` | Kolide API base URL (unusual to override). |
+| `KOLIDE_API_VERSION` | `2026-04-07` | **Set in `.env`** to pin the dated Kolide API line. Must be one of the values in `SUPPORTED_KOLIDE_API_VERSIONS`. Sent as `X-Kolide-Api-Version` on every upstream request. Use the older supported API version only if you depend on the older API contract. |
 | `MCP_HOST` | `127.0.0.1` | Bind address. Only change if you need remote access. |
 | `MCP_PORT` | `8000` | Listen port |
 | `MCP_CORS_ALLOWED_ORIGINS` | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
@@ -61,7 +88,7 @@ cp .env.example .env
 | `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stdout) |
 | `MCP_DEBUG` | `false` | Starlette debug mode (development only) |
 
-The Kolide API key is read fresh on each tool call, so you can update it in the `.env` file without restarting the server.
+The Kolide API key and API version header are read fresh on each tool call (using your `.env` if present), so you can change `KOLIDE_API_KEY` or `KOLIDE_API_VERSION` without restarting the server.
 
 ## Running the Server
 
@@ -197,7 +224,7 @@ Automatically resolve `device_id` or `device_information` fields to the register
 
 ## Available Tools
 
-The server exposes 59 tools: 56 endpoint tools covering all API functionality, plus 3 composite/utility tools.
+The server exposes 60 tools: 57 endpoint tools covering all API functionality, plus 3 composite/utility tools.
 
 ### Composite & Utility Tools
 
