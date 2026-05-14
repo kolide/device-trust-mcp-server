@@ -359,7 +359,7 @@ def main():
 
     print(f"Starting 1Password Device Trust MCP server on {config.host}:{config.port}")
     print(
-        f"Kolide REST API version (X-Kolide-Api-Version): {kolide_version} "
+        f"Kolide REST API version (x-kolide-api-version): {kolide_version} "
         f"(set KOLIDE_API_VERSION to switch; see kolide://docs/api-versions)"
     )
     print(f"MCP endpoint: http://{config.host}:{config.port}/mcp")
