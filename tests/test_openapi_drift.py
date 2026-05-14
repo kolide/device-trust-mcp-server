@@ -13,9 +13,13 @@ from pathlib import Path
 from kolide_mcp.api_version import SUPPORTED_KOLIDE_API_VERSIONS
 from kolide_mcp.endpoints import ENDPOINTS, endpoint_available_for_api_version
 
-# Intentional gaps between the OpenAPI contract and MCP tools (prefer adding an
-# EndpointSpec instead). Example: ``frozenset({("POST", "/new/path/{}/segment")})``.
-OPENAPI_OPERATIONS_WITHOUT_MCP_TOOL: frozenset[tuple[str, str]] = frozenset()
+# Intentional gaps between the OpenAPI contract and MCP tools, keyed by API
+# version so allowlist entries only suppress drift for the snapshot they were
+# observed in (prefer adding an EndpointSpec instead). Example:
+# ``{"2026-04-07": frozenset({("POST", "/new/path/{}/segment")})}``.
+OPENAPI_OPERATIONS_WITHOUT_MCP_TOOL: dict[str, frozenset[tuple[str, str]]] = {
+    version: frozenset() for version in SUPPORTED_KOLIDE_API_VERSIONS
+}
 
 
 def _normalize_path_template(path: str) -> str:
@@ -83,11 +87,14 @@ class OpenapiDriftTests(unittest.TestCase):
         for version in SUPPORTED_KOLIDE_API_VERSIONS:
             mcp_ops = _operations_from_endpoints_for_version(version)
             path = root / "openapi" / f"openapi{version}.json"
+            self.assertTrue(
+                path.is_file(),
+                f"Missing OpenAPI snapshot for supported version {version!r}: {path}",
+            )
             spec = json.loads(path.read_text(encoding="utf-8"))
             openapi_ops = _operations_from_openapi(spec)
-            extra = sorted(
-                openapi_ops - mcp_ops - OPENAPI_OPERATIONS_WITHOUT_MCP_TOOL
-            )
+            allowlist = OPENAPI_OPERATIONS_WITHOUT_MCP_TOOL.get(version, frozenset())
+            extra = sorted(openapi_ops - mcp_ops - allowlist)
             self.assertEqual(
                 extra,
                 [],

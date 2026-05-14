@@ -433,7 +433,10 @@ ENDPOINTS: list[EndpointSpec] = [
             ),
             Param(
                 "person_email",
-                "The email of the person. Use exactly one of device_id, person_id, or person_email.",
+                "The email of the person. Use exactly one of device_id, person_id, or person_email. "
+                "None of the three is marked required at the schema level so the LLM can choose; "
+                "the Kolide API enforces that exactly one is provided.",
+                type="string",
             ),
             Param(
                 "check_data",
@@ -797,6 +800,15 @@ def iter_endpoints_for_api_version(api_version: str) -> Iterator[EndpointSpec]:
             yield spec
 
 
-def build_all_tools(api_version: str) -> list[Tool]:
-    """Build MCP ``Tool`` objects for endpoints valid at *api_version*."""
+def build_all_tools(api_version: str | None = None) -> list[Tool]:
+    """Build MCP ``Tool`` objects for endpoints valid at *api_version*.
+
+    When *api_version* is ``None`` the currently configured Kolide API version
+    (from ``KOLIDE_API_VERSION``) is used. The argument is kept for callers that
+    need to build the tool list for a specific version (e.g. tests).
+    """
+    if api_version is None:
+        from .api_version import get_kolide_api_version
+
+        api_version = get_kolide_api_version()
     return [build_tool(spec) for spec in iter_endpoints_for_api_version(api_version)]
