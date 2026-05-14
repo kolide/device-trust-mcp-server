@@ -115,6 +115,12 @@ Health check: http://127.0.0.1:8000/health
 
 ## Connecting AI Tools
 
+> **Tip:** Drop-in example configs live in `.cursor.example/`,
+> `.claude.example/`, and `.vscode.example/` at the repo root. Copy the one
+> you need into place (e.g. `cp -r .cursor.example .cursor`) instead of
+> writing the JSON by hand, then replace `your-mcp-auth-token-here` with
+> your `MCP_AUTH_TOKEN`.
+
 ### Cursor
 
 Add to `.cursor/mcp.json` in your project or global config:
@@ -148,6 +154,24 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
         "http://localhost:8000/mcp",
         "--header", "Authorization: Bearer YOUR_MCP_AUTH_TOKEN"
       ]
+    }
+  }
+}
+```
+
+### VS Code (Copilot Chat)
+
+Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your project, then open the Copilot Chat panel in **Agent** mode:
+
+```json
+{
+  "servers": {
+    "kolide": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN"
+      }
     }
   }
 }
