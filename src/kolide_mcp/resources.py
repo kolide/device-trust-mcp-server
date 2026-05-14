@@ -2,7 +2,62 @@
 
 from mcp.types import Resource
 
+from .api_version import (
+    DEFAULT_KOLIDE_API_VERSION,
+    SUPPORTED_KOLIDE_API_VERSIONS,
+    get_kolide_api_version,
+)
 from .endpoints import ENDPOINTS
+
+
+def _build_api_versions_doc() -> str:
+    """Document Kolide REST API versions supported by this MCP server."""
+    specs = ", ".join(f"`openapi{v}.json`" for v in SUPPORTED_KOLIDE_API_VERSIONS)
+    try:
+        active = get_kolide_api_version()
+    except ValueError as exc:
+        active = f"_Invalid `KOLIDE_API_VERSION` ({exc})_"
+    lines = [
+        "# Kolide REST API versions",
+        "",
+        "The upstream Kolide / 1Password Device Trust API is **versioned by date**.",
+        "Each tool call sends:",
+        "",
+        "`X-Kolide-Api-Version: <version>`",
+        "",
+        "(Kolide documents that omitting the header selects their latest version; "
+        "this server always sends an explicit version for stable behavior.)",
+        "",
+        "## Supported version strings",
+        "",
+    ]
+    for v in SUPPORTED_KOLIDE_API_VERSIONS:
+        lines.append(f"- `{v}`")
+    lines.extend(
+        [
+            "",
+            "## Configure which version this MCP uses",
+            "",
+            "Set **`KOLIDE_API_VERSION`** in your environment or in a **`.env`** file "
+            "(same directory you start the server from).",
+            f"If unset, the default is **`{DEFAULT_KOLIDE_API_VERSION}`** "
+            "(Kolide’s current documented API line).",
+            "",
+            "Individual MCP tools may be restricted to specific API versions via "
+            "`EndpointSpec.api_versions` in `endpoints.py` (see the README section "
+            "*Maintaining API parity*).",
+            "",
+            "## Active version for this process",
+            "",
+            f"The running server resolves the header to: **`{active}`**",
+            "",
+            "## OpenAPI snapshots in this repository",
+            "",
+            f"Spec files under `openapi/` ({specs}) are used in CI so `endpoints.py` "
+            "stays aligned with each supported version.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _build_search_syntax_doc() -> str:
@@ -135,6 +190,7 @@ def _build_workflows_doc() -> str:
 
 
 _RESOURCE_CONTENT = {
+    "kolide://docs/api-versions": _build_api_versions_doc,
     "kolide://docs/search-syntax": _build_search_syntax_doc,
     "kolide://docs/reporting-tables": _build_reporting_tables_doc,
     "kolide://docs/workflows": _build_workflows_doc,
