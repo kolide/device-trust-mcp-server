@@ -8,6 +8,32 @@ from dotenv import load_dotenv
 
 from .api_version import get_kolide_api_version
 
+try:
+    from kolide_mcp._main_sha import MAIN_SHA
+except ImportError:
+    MAIN_SHA = "unknown"
+
+PRODUCT_NAME = "1Password-Device-Trust-MCP-Client"
+
+
+def _build_user_agent(main_sha: str = MAIN_SHA) -> str:
+    """Build the User-Agent header value.
+
+    Resolved at build time by ``hatch_build.py``:
+
+    * ``<product>/sha:<short-sha>`` — official build from canonical upstream;
+      short SHA is the first 9 chars of ``origin/main``.
+    * ``<product>/fork`` — built from a non-upstream ``origin`` remote.
+    * ``<product>`` — no SHA available (e.g. installed from a source tarball
+      with no git metadata).
+    """
+    sha = (main_sha or "").strip()
+    if not sha or sha == "unknown":
+        return PRODUCT_NAME
+    if sha == "fork":
+        return f"{PRODUCT_NAME}/fork"
+    return f"{PRODUCT_NAME}/{sha[:9]}"
+
 
 class KolideAPIError(Exception):
     """Exception raised for Kolide API errors."""
@@ -27,6 +53,7 @@ class KolideClient:
     """
 
     DEFAULT_BASE_URL = "https://api.kolide.com"
+    USER_AGENT = _build_user_agent()
 
     def __init__(self) -> None:
         load_dotenv(override=True)
@@ -47,6 +74,7 @@ class KolideClient:
         return {
             "Authorization": f"Bearer {api_key}",
             "x-kolide-api-version": api_version,
+            "User-Agent": self.USER_AGENT,
             "Content-Type": "application/json",
         }
 
