@@ -80,7 +80,7 @@ cp .env.example .env
 | Variable | Default | Description |
 |---|---|---|
 | `KOLIDE_API_URL` | `https://api.kolide.com` | Kolide API base URL (unusual to override). |
-| `KOLIDE_API_VERSION` | `2026-04-07` | **Set in `.env`** to pin the dated Kolide API line. Must be `2023-05-26` or `2026-04-07`. Sent as `X-Kolide-Api-Version` on every upstream request. Use `2023-05-26` only if you depend on the older API contract. |
+| `KOLIDE_API_VERSION` | `2026-04-07` | **Set in `.env`** to pin the dated Kolide API line. Must be one of the values in `SUPPORTED_KOLIDE_API_VERSIONS`. Sent as `X-Kolide-Api-Version` on every upstream request. Use the older supported API version only if you depend on the older API contract. |
 | `MCP_HOST` | `127.0.0.1` | Bind address. Only change if you need remote access. |
 | `MCP_PORT` | `8000` | Listen port |
 | `MCP_CORS_ALLOWED_ORIGINS` | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
