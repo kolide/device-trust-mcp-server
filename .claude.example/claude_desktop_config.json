@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "kolide": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:8000/mcp",
+        "--header",
+        "Authorization: Bearer your-mcp-auth-token-here"
+      ]
+    }
+  }
+}
