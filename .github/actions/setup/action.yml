@@ -1,0 +1,25 @@
+name: Set up project
+description: Check out the repo, install uv with Python 3.11, and sync the project.
+
+inputs:
+  extras:
+    description: Optional comma-separated list of extras to install (e.g. "test").
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Sync project
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.extras }}" ]; then
+          uv sync --extra "${{ inputs.extras }}"
+        else
+          uv sync
+        fi
