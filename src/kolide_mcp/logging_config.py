@@ -24,8 +24,9 @@ class StructuredFormatter(logging.Formatter):
 def setup_logging(log_file: str | None = None) -> logging.Logger:
     """Configure and return the kolide_mcp logger.
 
-    Logs are written to stdout. If log_file is provided, logs are also
-    written to that file path. Both handlers use structured JSON format.
+    Logs are written to stderr (so they don't corrupt the JSON-RPC channel
+    when running under stdio transport). If log_file is provided, logs are
+    also written to that file path. Both handlers use structured JSON format.
     """
     logger = logging.getLogger("kolide_mcp")
     logger.setLevel(logging.INFO)
@@ -33,9 +34,9 @@ def setup_logging(log_file: str | None = None) -> logging.Logger:
 
     formatter = StructuredFormatter()
 
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setFormatter(formatter)
-    logger.addHandler(stdout_handler)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(formatter)
+    logger.addHandler(stderr_handler)
 
     if log_file:
         file_handler = logging.FileHandler(log_file)

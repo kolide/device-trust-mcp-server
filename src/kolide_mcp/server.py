@@ -335,6 +335,47 @@ def create_app():
     return app
 
 
+def main_stdio():
+    """Run the MCP server over stdio (subprocess transport).
+
+    Unlike the HTTP entry point, this skips MCP_AUTH_TOKEN: stdio inherits the
+    parent process's trust boundary, so the bearer token would be meaningless.
+    KOLIDE_API_KEY is still required (validated on first tool call).
+    """
+    import asyncio
+    import sys
+
+    from mcp.server.stdio import stdio_server
+
+    setup_logging(config.log_file)
+
+    try:
+        get_kolide_api_version()
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    async def _run():
+        registry = create_registry(client)
+        try:
+            await registry.load()
+        except Exception:
+            logger.warning(
+                "Failed to load reporting tables at startup; will retry on first use"
+            )
+        try:
+            async with stdio_server() as (read_stream, write_stream):
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options(),
+                )
+        finally:
+            await client.close()
+
+    asyncio.run(_run())
+
+
 def main():
     """Run the MCP server with Streamable HTTP transport."""
     import sys

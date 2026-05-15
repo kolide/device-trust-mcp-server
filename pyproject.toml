@@ -20,6 +20,7 @@ test = [
 
 [project.scripts]
 kolide-mcp = "kolide_mcp.server:main"
+kolide-mcp-stdio = "kolide_mcp.server:main_stdio"
 
 [build-system]
 requires = ["hatchling"]
