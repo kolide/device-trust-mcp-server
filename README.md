@@ -228,7 +228,28 @@ Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your proje
 
 ### Other MCP Clients
 
-Connect to the MCP endpoint at `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport. Clients that only support stdio can use `mcp-remote` as shown in the Claude Desktop example above.
+**HTTP transport** — Connect to `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport.
+
+**stdio transport** — If your client supports stdio subprocess servers (most modern MCP clients do), launch `kolide-mcp-stdio` directly and skip the running server entirely:
+
+```json
+{
+  "mcpServers": {
+    "kolide": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/device-trust-mcp-server",
+        "run", "kolide-mcp-stdio"
+      ],
+      "env": {
+        "KOLIDE_API_KEY": "your-kolide-api-key"
+      }
+    }
+  }
+}
+```
+
+The client manages the process lifetime; no port, no auth token, and no `mcp-remote` bridge are needed. Clients that only support HTTP can use `mcp-remote` as shown in the Claude Desktop example above.
 
 Replace `YOUR_MCP_AUTH_TOKEN` in all examples with the same value you set in `MCP_AUTH_TOKEN`.
 
