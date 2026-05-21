@@ -356,6 +356,7 @@ def main_stdio():
         sys.exit(1)
 
     async def _run():
+        _request_ip.set("stdio")
         registry = create_registry(client)
         try:
             await registry.load()

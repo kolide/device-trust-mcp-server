@@ -85,7 +85,7 @@ cp .env.example .env
 | `MCP_PORT` | `8000` | Listen port |
 | `MCP_CORS_ALLOWED_ORIGINS` | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
 | `MCP_MAX_ENRICH_RECORDS` | `500` | Max records enriched per `enrich_device_owner` call |
-| `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stdout) |
+| `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stderr) |
 | `MCP_DEBUG` | `false` | Starlette debug mode (development only) |
 
 The Kolide API key and API version header are read fresh on each tool call (using your `.env` if present), so you can change `KOLIDE_API_KEY` or `KOLIDE_API_VERSION` without restarting the server.
