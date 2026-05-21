@@ -373,7 +373,15 @@ def main_stdio():
         finally:
             await client.close()
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        # asyncio.run() has already propagated cancellation through _run(), so
+        # client.close() and stdio_server teardown ran. Bypass interpreter
+        # finalization because anyio's stdin reader is a daemon thread blocked
+        # in a C-level read() that threading._shutdown can't join.
+        import os
+        os._exit(0)
 
 
 def main():
