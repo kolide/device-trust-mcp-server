@@ -335,6 +335,56 @@ def create_app():
     return app
 
 
+def main_stdio():
+    """Run the MCP server over stdio (subprocess transport).
+
+    Unlike the HTTP entry point, this skips MCP_AUTH_TOKEN: stdio inherits the
+    parent process's trust boundary, so the bearer token would be meaningless.
+    KOLIDE_API_KEY is still required (validated on first tool call).
+    """
+    import asyncio
+    import sys
+
+    from mcp.server.stdio import stdio_server
+
+    setup_logging(config.log_file)
+
+    try:
+        get_kolide_api_version()
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    async def _run():
+        _request_ip.set("stdio")
+        registry = create_registry(client)
+        try:
+            await registry.load()
+        except Exception:
+            logger.warning(
+                "Failed to load reporting tables at startup; will retry on first use"
+            )
+        try:
+            async with stdio_server() as (read_stream, write_stream):
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options(),
+                )
+        finally:
+            await client.close()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        # asyncio.run() has already propagated cancellation through _run(), so
+        # client.close() and stdio_server teardown ran. Bypass interpreter
+        # finalization because anyio's stdin reader is a daemon thread blocked
+        # in a C-level read() that threading._shutdown can't join.
+        import os
+        os._exit(0)
+
+
 def main():
     """Run the MCP server with Streamable HTTP transport."""
     import sys

@@ -1,6 +1,6 @@
 # 1Password Device Trust (Kolide K2) MCP Server
 
-An MCP (Model Context Protocol) server that exposes the 1Password Device Trust API (formerly Kolide K2) as tools for AI agents. Uses Streamable HTTP transport for communication.
+An MCP (Model Context Protocol) server that exposes the 1Password Device Trust API (formerly Kolide K2) as tools for AI agents. Supports both Streamable HTTP and stdio transports.
 
 ## Features
 
@@ -14,7 +14,7 @@ An MCP (Model Context Protocol) server that exposes the 1Password Device Trust A
 - **Bearer token authentication** on all MCP endpoints
 - **Structured JSON audit logging** of every tool invocation
 - Binds to localhost only by default; configurable CORS allowlist
-- Streamable HTTP transport for easy integration with AI tools
+- **Dual transport** — Streamable HTTP for long-running shared servers, or stdio for zero-setup subprocess launches by Claude Code, Claude Desktop, and other stdio-capable clients
 - API key and Kolide API version (`KOLIDE_API_VERSION`) read fresh on each request (supports `.env` updates without restart)
 
 ## Maintaining API parity
@@ -85,22 +85,29 @@ cp .env.example .env
 | `MCP_PORT` | `8000` | Listen port |
 | `MCP_CORS_ALLOWED_ORIGINS` | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
 | `MCP_MAX_ENRICH_RECORDS` | `500` | Max records enriched per `enrich_device_owner` call |
-| `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stdout) |
+| `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stderr) |
 | `MCP_DEBUG` | `false` | Starlette debug mode (development only) |
 
 The Kolide API key and API version header are read fresh on each tool call (using your `.env` if present), so you can change `KOLIDE_API_KEY` or `KOLIDE_API_VERSION` without restarting the server.
 
 ## Running the Server
 
-### Using uv
+The server supports two transports. Both expose the same tools, resources, and behavior — they only differ in how the MCP client reaches the server.
+
+### Which mode should I use?
+
+| Mode | When to use it |
+|---|---|
+| **HTTP** (`kolide-mcp`) | You want one long-running server shared by multiple clients (Cursor, VS Code, browser-based agents), need to run the server on a different machine, or want a process you can monitor with the `/health` endpoint. Requires `MCP_AUTH_TOKEN` for bearer-token auth. |
+| **stdio** (`kolide-mcp-stdio`) | You want zero setup: the MCP client launches the server as a subprocess on demand, with no port to manage, no auth token, and no need for the `mcp-remote` bridge. Works out of the box with Claude Code, Claude Desktop, and any stdio-capable MCP client. Lifetime is tied to the client. |
+
+You can run both at the same time — they're independent processes — so HTTP clients and stdio clients can share the same install.
+
+### HTTP mode
 
 ```bash
 uv run kolide-mcp
-```
-
-### Using Python directly
-
-```bash
+# or
 python -m kolide_mcp.server
 ```
 
@@ -111,7 +118,17 @@ MCP endpoint: http://127.0.0.1:8000/mcp
 Health check: http://127.0.0.1:8000/health
 ```
 
-> **Note:** The server refuses to start if `MCP_AUTH_TOKEN` is not set.
+> **Note:** HTTP mode refuses to start if `MCP_AUTH_TOKEN` is not set.
+
+### stdio mode
+
+You normally don't run this command yourself — your MCP client launches it. To smoke-test:
+
+```bash
+uv run kolide-mcp-stdio
+```
+
+The process reads JSON-RPC from stdin and writes responses to stdout; logs go to stderr. `MCP_AUTH_TOKEN` is **not** required (stdio inherits the parent process's trust boundary), but `KOLIDE_API_KEY` still is.
 
 ## Connecting AI Tools
 
@@ -159,6 +176,38 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+### Claude Code
+
+Claude Code supports stdio servers directly. Register the server with the `claude mcp add` CLI (recommended) or by editing your MCP config file by hand.
+
+Using the CLI:
+
+```bash
+claude mcp add kolide -- uv --directory /absolute/path/to/device-trust-mcp-server run kolide-mcp-stdio
+```
+
+Or add to your Claude Code MCP config (`~/.claude.json` user-scope, or `.mcp.json` in your project root):
+
+```json
+{
+  "mcpServers": {
+    "kolide": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/device-trust-mcp-server",
+        "run", "kolide-mcp-stdio"
+      ],
+      "env": {
+        "KOLIDE_API_KEY": "your-kolide-api-key",
+        "KOLIDE_API_VERSION": "2026-04-07"
+      }
+    }
+  }
+}
+```
+
+If you'd rather point Claude Code at a running HTTP server, use the same `mcp-remote` pattern shown in the Claude Desktop section above.
+
 ### VS Code (Copilot Chat)
 
 Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your project, then open the Copilot Chat panel in **Agent** mode:
@@ -179,7 +228,28 @@ Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your proje
 
 ### Other MCP Clients
 
-Connect to the MCP endpoint at `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport. Clients that only support stdio can use `mcp-remote` as shown in the Claude Desktop example above.
+**HTTP transport** — Connect to `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport.
+
+**stdio transport** — If your client supports stdio subprocess servers (most modern MCP clients do), launch `kolide-mcp-stdio` directly and skip the running server entirely:
+
+```json
+{
+  "mcpServers": {
+    "kolide": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/device-trust-mcp-server",
+        "run", "kolide-mcp-stdio"
+      ],
+      "env": {
+        "KOLIDE_API_KEY": "your-kolide-api-key"
+      }
+    }
+  }
+}
+```
+
+The client manages the process lifetime; no port, no auth token, and no `mcp-remote` bridge are needed. Clients that only support HTTP can use `mcp-remote` as shown in the Claude Desktop example above.
 
 Replace `YOUR_MCP_AUTH_TOKEN` in all examples with the same value you set in `MCP_AUTH_TOKEN`.
 
