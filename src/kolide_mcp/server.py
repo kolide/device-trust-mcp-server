@@ -323,7 +323,11 @@ def create_app():
 
         class BearerAuthMiddleware(BaseHTTPMiddleware):
             async def dispatch(self, request, call_next):
-                if request.url.path == "/health":
+                # Use scope["path"] (from the HTTP request line) rather than
+                # request.url.path (built from the Host header) so a forged
+                # Host like "x/health?y=" can't trick the bypass — see
+                # CVE-2026-48710 / BadHost.
+                if request.scope["path"] == "/health":
                     return await call_next(request)
                 auth = request.headers.get("Authorization", "")
                 if not auth.startswith("Bearer ") or auth[7:] != config.auth_token:
