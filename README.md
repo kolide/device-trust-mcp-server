@@ -11,7 +11,7 @@ An MCP (Model Context Protocol) server that exposes the 1Password Device Trust A
 - **Composite analytical tools** for common aggregation tasks (resolution time stats, grouped counts)
 - **Dynamic reporting table validation** — table names are fetched from the API at startup and refreshable on demand
 - **MCP Resources** providing search syntax docs, reporting table guides, and workflow references
-- **Bearer token authentication** on all MCP endpoints
+- **Bearer token authentication** on all MCP HTTP endpoints (stdio inherits the parent process's trust boundary and skips the token)
 - **Structured JSON audit logging** of every tool invocation
 - Binds to localhost only by default; configurable CORS allowlist
 - **Dual transport** — Streamable HTTP for long-running shared servers, or stdio for zero-setup subprocess launches by Claude Code, Claude Desktop, and other stdio-capable clients
@@ -47,14 +47,14 @@ After adding a new version line to the server, extend `SUPPORTED_KOLIDE_API_VERS
 ### Using uv (recommended)
 
 ```bash
-cd /path/to/k2_api_mcp
+cd /path/to/device-trust-mcp-server
 uv sync
 ```
 
 ### Using pip
 
 ```bash
-cd /path/to/k2_api_mcp
+cd /path/to/device-trust-mcp-server
 pip install -e .
 ```
 
@@ -70,23 +70,23 @@ cp .env.example .env
 
 **Required variables:**
 
-| Variable | Description |
-|---|---|
-| `KOLIDE_API_KEY` | Your Kolide API key (Dashboard > Settings > API Keys) |
-| `MCP_AUTH_TOKEN` | Bearer token for MCP endpoint access. Generate one with: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| Variable | Required by | Description |
+|---|---|---|
+| `KOLIDE_API_KEY` | both transports | Your Kolide API key (Dashboard > Settings > API Keys) |
+| `MCP_AUTH_TOKEN` | HTTP only | Bearer token for MCP endpoint access. Generate one with: `python -c "import secrets; print(secrets.token_hex(32))"`. Not used in stdio mode — stdio inherits the parent process's trust boundary. |
 
 **Optional variables:**
 
-| Variable | Default | Description |
-|---|---|---|
-| `KOLIDE_API_URL` | `https://api.kolide.com` | Kolide API base URL (unusual to override). |
-| `KOLIDE_API_VERSION` | `2026-04-07` | **Set in `.env`** to pin the dated Kolide API line. Must be one of the values in `SUPPORTED_KOLIDE_API_VERSIONS`. Sent as `X-Kolide-Api-Version` on every upstream request. Use the older supported API version only if you depend on the older API contract. |
-| `MCP_HOST` | `127.0.0.1` | Bind address. Only change if you need remote access. |
-| `MCP_PORT` | `8000` | Listen port |
-| `MCP_CORS_ALLOWED_ORIGINS` | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
-| `MCP_MAX_ENRICH_RECORDS` | `500` | Max records enriched per `enrich_device_owner` call |
-| `MCP_LOG_FILE` | *(unset)* | File path for structured audit logs (in addition to stderr) |
-| `MCP_DEBUG` | `false` | Starlette debug mode (development only) |
+| Variable | Scope | Default | Description |
+|---|---|---|---|
+| `KOLIDE_API_URL` | both | `https://api.kolide.com` | Kolide API base URL (unusual to override). |
+| `KOLIDE_API_VERSION` | both | `2026-04-07` | **Set in `.env`** to pin the dated Kolide API line. Must be one of the values in `SUPPORTED_KOLIDE_API_VERSIONS`. Sent as `X-Kolide-Api-Version` on every upstream request. Use the older supported API version only if you depend on the older API contract. |
+| `MCP_MAX_ENRICH_RECORDS` | both | `500` | Max records enriched per `enrich_device_owner` call |
+| `MCP_LOG_FILE` | both | *(unset)* | File path for structured audit logs (in addition to stderr) |
+| `MCP_HOST` | HTTP only | `127.0.0.1` | Bind address. Only change if you need remote access. |
+| `MCP_PORT` | HTTP only | `8000` | Listen port |
+| `MCP_CORS_ALLOWED_ORIGINS` | HTTP only | `http://localhost,http://127.0.0.1` | Comma-separated origins for browser-based MCP clients |
+| `MCP_DEBUG` | HTTP only | `false` | Starlette debug mode (development only) |
 
 The Kolide API key and API version header are read fresh on each tool call (using your `.env` if present), so you can change `KOLIDE_API_KEY` or `KOLIDE_API_VERSION` without restarting the server.
 
@@ -107,8 +107,6 @@ You can run both at the same time — they're independent processes — so HTTP 
 
 ```bash
 uv run kolide-mcp
-# or
-python -m kolide_mcp.server
 ```
 
 The server will start and display:
@@ -119,6 +117,12 @@ Health check: http://127.0.0.1:8000/health
 ```
 
 > **Note:** HTTP mode refuses to start if `MCP_AUTH_TOKEN` is not set.
+
+The HTTP server exposes a health endpoint at `http://localhost:8000/health` (unauthenticated, intended for liveness probes) that returns:
+
+```json
+{"status": "ok"}
+```
 
 ### stdio mode
 
@@ -132,15 +136,42 @@ The process reads JSON-RPC from stdin and writes responses to stdout; logs go to
 
 ## Connecting AI Tools
 
-> **Tip:** Drop-in example configs live in `.cursor.example/`,
-> `.claude.example/`, and `.vscode.example/` at the repo root. Copy the one
-> you need into place (e.g. `cp -r .cursor.example .cursor`) instead of
-> writing the JSON by hand, then replace `your-mcp-auth-token-here` with
-> your `MCP_AUTH_TOKEN`.
+> **Tip:** Drop-in example configs live at the repo root:
+>
+> | Example file | Client | Transport |
+> |---|---|---|
+> | `.cursor.example/mcp.json` | Cursor | stdio |
+> | `.claude.example/claude_desktop_config.json` | Claude Desktop | stdio |
+> | `.claude-code.example/.mcp.json` | Claude Code | stdio |
+> | `.vscode.example/mcp.json` | VS Code (Copilot Chat) | HTTP |
+>
+> Copy the one you need (e.g. `cp -r .cursor.example .cursor`) instead of writing the JSON by hand. For stdio variants, replace `/absolute/path/to/device-trust-mcp-server` with the absolute path to your checkout and fill in `KOLIDE_API_KEY`. For HTTP variants, replace `your-mcp-auth-token-here` with your `MCP_AUTH_TOKEN`. To use HTTP with Cursor or Claude Code instead of stdio, see the inline JSON in those sections below.
 
 ### Cursor
 
-Add to `.cursor/mcp.json` in your project or global config:
+Cursor supports both transports. Add to `.cursor/mcp.json` in your project or global config.
+
+**stdio (recommended):**
+
+```json
+{
+  "mcpServers": {
+    "kolide": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/device-trust-mcp-server",
+        "run", "kolide-mcp-stdio"
+      ],
+      "env": {
+        "KOLIDE_API_KEY": "your-kolide-api-key",
+        "KOLIDE_API_VERSION": "2026-04-07"
+      }
+    }
+  }
+}
+```
+
+**HTTP (shared long-running server):**
 
 ```json
 {
@@ -157,9 +188,31 @@ Add to `.cursor/mcp.json` in your project or global config:
 
 ### Claude Desktop
 
-Claude Desktop's `claude_desktop_config.json` only supports stdio (subprocess) servers — it does not connect to remote HTTP URLs configured in the JSON file. To bridge the gap, use [`mcp-remote`](https://www.npmjs.com/package/mcp-remote), which wraps the HTTP server as a stdio process that Claude Desktop can manage.
+Claude Desktop only supports stdio (subprocess) MCP servers in `claude_desktop_config.json` — it does not connect to remote HTTP URLs directly.
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+**Recommended (stdio, no running server):** Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kolide": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/device-trust-mcp-server",
+        "run", "kolide-mcp-stdio"
+      ],
+      "env": {
+        "KOLIDE_API_KEY": "your-kolide-api-key",
+        "KOLIDE_API_VERSION": "2026-04-07"
+      }
+    }
+  }
+}
+```
+
+> **macOS PATH gotcha:** Claude Desktop launches subprocesses without your login shell's `PATH`, so `"command": "uv"` often fails to resolve even when `uv` works in your terminal. Either use the absolute path to `uv` (find it with `which uv` — typically `/opt/homebrew/bin/uv` for Homebrew or `~/.local/bin/uv` for the official installer), or wrap it: `"command": "/usr/bin/env", "args": ["uv", ...]`.
+
+**Alternative (HTTP via `mcp-remote`):** If you'd rather have Claude Desktop share a long-running HTTP server with other clients, use [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) to wrap it as stdio:
 
 ```json
 {
@@ -228,9 +281,7 @@ Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your proje
 
 ### Other MCP Clients
 
-**HTTP transport** — Connect to `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport.
-
-**stdio transport** — If your client supports stdio subprocess servers (most modern MCP clients do), launch `kolide-mcp-stdio` directly and skip the running server entirely:
+**stdio transport (recommended)** — If your client supports stdio subprocess servers (most modern MCP clients do), launch `kolide-mcp-stdio` directly and skip running a separate HTTP server entirely:
 
 ```json
 {
@@ -249,7 +300,9 @@ Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your proje
 }
 ```
 
-The client manages the process lifetime; no port, no auth token, and no `mcp-remote` bridge are needed. Clients that only support HTTP can use `mcp-remote` as shown in the Claude Desktop example above.
+The client manages the process lifetime; no port, no auth token, and no `mcp-remote` bridge are needed.
+
+**HTTP transport** — Connect to `http://localhost:8000/mcp` with an `Authorization: Bearer <token>` header. The server uses the Streamable HTTP transport. Clients that only support stdio can use `mcp-remote` as shown in the Claude Desktop example above.
 
 Replace `YOUR_MCP_AUTH_TOKEN` in all examples with the same value you set in `MCP_AUTH_TOKEN`.
 
@@ -417,13 +470,6 @@ List tools return paginated results. Use the `cursor` from the response to fetch
   "cursor": "next_page_cursor",
   "per_page": 25
 }
-```
-
-## Health Check
-
-The server provides a health endpoint at `http://localhost:8000/health` that returns:
-```json
-{"status": "ok"}
 ```
 
 ## License
