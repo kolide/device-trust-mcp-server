@@ -163,8 +163,7 @@ Cursor supports both transports. Add to `.cursor/mcp.json` in your project or gl
         "run", "kolide-mcp-stdio"
       ],
       "env": {
-        "KOLIDE_API_KEY": "your-kolide-api-key",
-        "KOLIDE_API_VERSION": "2026-04-07"
+        "KOLIDE_API_KEY": "your-api-key-here"
       }
     }
   }
@@ -202,8 +201,7 @@ Claude Desktop only supports stdio (subprocess) MCP servers in `claude_desktop_c
         "run", "kolide-mcp-stdio"
       ],
       "env": {
-        "KOLIDE_API_KEY": "your-kolide-api-key",
-        "KOLIDE_API_VERSION": "2026-04-07"
+        "KOLIDE_API_KEY": "your-api-key-here"
       }
     }
   }
@@ -251,8 +249,7 @@ Or add to your Claude Code MCP config (`~/.claude.json` user-scope, or `.mcp.jso
         "run", "kolide-mcp-stdio"
       ],
       "env": {
-        "KOLIDE_API_KEY": "your-kolide-api-key",
-        "KOLIDE_API_VERSION": "2026-04-07"
+        "KOLIDE_API_KEY": "your-api-key-here"
       }
     }
   }
@@ -293,7 +290,7 @@ Requires VS Code 1.99+ with MCP support. Add to `.vscode/mcp.json` in your proje
         "run", "kolide-mcp-stdio"
       ],
       "env": {
-        "KOLIDE_API_KEY": "your-kolide-api-key"
+        "KOLIDE_API_KEY": "your-api-key-here"
       }
     }
   }
