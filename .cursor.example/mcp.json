@@ -1,9 +1,15 @@
 {
   "mcpServers": {
     "kolide": {
-      "url": "http://localhost:8000/mcp",
-      "headers": {
-        "Authorization": "Bearer your-mcp-auth-token-here"
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/device-trust-mcp-server",
+        "run",
+        "kolide-mcp-stdio"
+      ],
+      "env": {
+        "KOLIDE_API_KEY": "your-api-key-here"
       }
     }
   }
