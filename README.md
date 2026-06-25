@@ -73,13 +73,13 @@ cp .env.example .env
 | Variable | Required by | Description |
 |---|---|---|
 | `KOLIDE_API_KEY` | both transports | Your Kolide API key (Dashboard > Settings > API Keys) |
-| `MCP_AUTH_TOKEN` | HTTP only | Bearer token for MCP endpoint access. Generate one with: `python -c "import secrets; print(secrets.token_hex(32))"`. Not used in stdio mode — stdio inherits the parent process's trust boundary. |
 
 **Optional variables:**
 
 | Variable | Scope | Default | Description |
 |---|---|---|---|
 | `KOLIDE_API_URL` | both | `https://api.kolide.com` | Kolide API base URL (unusual to override). |
+| `MCP_AUTH_TOKEN` | HTTP only | Bearer token for MCP endpoint access. Generate one with: `python -c "import secrets; print(secrets.token_hex(32))"`. Not used in stdio mode — stdio inherits the parent process's trust boundary. |
 | `KOLIDE_API_VERSION` | both | `2026-04-07` | **Set in `.env`** to pin the dated Kolide API line. Must be one of the values in `SUPPORTED_KOLIDE_API_VERSIONS`. Sent as `X-Kolide-Api-Version` on every upstream request. Use the older supported API version only if you depend on the older API contract. |
 | `MCP_MAX_ENRICH_RECORDS` | both | `500` | Max records enriched per `enrich_device_owner` call |
 | `MCP_LOG_FILE` | both | *(unset)* | File path for structured audit logs (in addition to stderr) |
