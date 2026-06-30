@@ -1,0 +1,95 @@
+name: OpenAPI spec drift
+
+# Keeps openapi/openapi<version>.json in sync with the specs K2 publishes at
+# <docs-base>/docs/openapi/<version>. Runs weekly and on demand; when the
+# committed snapshots have drifted it opens (or updates) a PR with the refresh.
+
+on:
+  schedule:
+    # Mondays at 13:00 UTC.
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      docs_base_url:
+        description: "Override the docs base URL (e.g. a staging host)."
+        required: false
+        default: "https://www.kolide.com"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: openapi-spec-drift
+  cancel-in-progress: false
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up project
+        uses: ./.github/actions/setup
+
+      - name: Sync OpenAPI snapshots from published specs
+        id: sync
+        env:
+          DOCS_BASE_URL: ${{ github.event.inputs.docs_base_url || 'https://www.kolide.com' }}
+          DRIFT_SUMMARY_PATH: ${{ runner.temp }}/drift-summary.md
+        run: |
+          set +e
+          uv run python scripts/sync_openapi_specs.py
+          status=$?
+          # 0 = no drift, 1 = drift (files rewritten), 2 = fetch/validation failure.
+          if [ "$status" -eq 2 ]; then
+            echo "Failed to fetch or validate a published spec." >&2
+            exit 1
+          fi
+          exit 0
+
+      - name: Verify refreshed snapshots still pass drift tests
+        if: steps.sync.outputs.drift == 'true'
+        run: uv run pytest tests/test_openapi_drift.py -v
+
+      # Open/update the PR with first-party tooling only (git + the gh CLI, both
+      # preinstalled on the runner) using the built-in GITHUB_TOKEN — no
+      # third-party actions in the supply chain.
+      - name: Open pull request with refreshed snapshots
+        if: steps.sync.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/openapi-spec-drift
+          VERSIONS: ${{ steps.sync.outputs.versions }}
+          BODY_PATH: ${{ runner.temp }}/drift-summary.md
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Rebuild the automation branch from the current commit + refreshed specs.
+          git checkout -B "$BRANCH"
+          git add -- openapi/*.json
+          git commit -m "chore: sync OpenAPI snapshots with published K2 specs"
+          git push --force origin "$BRANCH"
+
+          # Labels must exist before `gh pr create --label` can apply them.
+          gh label create openapi --color 0e8a16 --description "OpenAPI spec changes" 2>/dev/null || true
+          gh label create automated --color ededed --description "Opened by automation" 2>/dev/null || true
+
+          title="chore: sync OpenAPI snapshots ($VERSIONS)"
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            echo "Updating existing PR for $BRANCH."
+            gh pr edit "$BRANCH" --title "$title" --body-file "$BODY_PATH"
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$title" \
+              --body-file "$BODY_PATH" \
+              --label openapi \
+              --label automated
+          fi
