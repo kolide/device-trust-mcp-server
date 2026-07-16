@@ -12,7 +12,6 @@ from .endpoints import ENDPOINTS
 
 def _build_api_versions_doc() -> str:
     """Document Kolide REST API versions supported by this MCP server."""
-    specs = ", ".join(f"`openapi{v}.json`" for v in SUPPORTED_KOLIDE_API_VERSIONS)
     try:
         active = get_kolide_api_version()
     except ValueError as exc:
@@ -51,10 +50,11 @@ def _build_api_versions_doc() -> str:
             "",
             f"The running server resolves the header to: **`{active}`**",
             "",
-            "## OpenAPI snapshots in this repository",
+            "## Keeping the registry in sync",
             "",
-            f"Spec files under `openapi/` ({specs}) are used in CI so `endpoints.py` "
-            "stays aligned with each supported version.",
+            "`endpoints.py` is reconciled against the specs Kolide publishes at "
+            "`https://www.kolide.com/docs/openapi/<version>` by a scheduled workflow "
+            "(`.github/workflows/sync-endpoints.yml`), which opens a PR when they drift.",
         ]
     )
     return "\n".join(lines)

@@ -1,0 +1,103 @@
+name: Sync endpoint registry
+
+on:
+  schedule:
+    - cron: "0 13 * * 2,4"
+  workflow_dispatch:
+    inputs:
+      docs_base_url:
+        description: "Override the docs base URL (e.g. a staging host)."
+        required: false
+        default: "https://www.kolide.com"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-endpoints
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up project
+        uses: ./.github/actions/setup
+        with:
+          extras: test
+
+      - name: Reconcile endpoints.py with the published specs
+        id: sync
+        env:
+          DOCS_BASE_URL: ${{ github.event.inputs.docs_base_url || 'https://www.kolide.com' }}
+          SYNC_SUMMARY_PATH: ${{ runner.temp }}/endpoints-sync-summary.md
+        run: |
+          set +e
+          uv run python scripts/sync_endpoints.py
+          status=$?
+          if [ "$status" -eq 2 ]; then
+            echo "::error::Failed to fetch or validate a published spec." >&2
+            exit 1
+          fi
+          exit 0
+
+      - name: Verify the reconciled registry imports and the reconciler still passes
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          uv run python - <<'PY'
+          from kolide_mcp.api_version import SUPPORTED_KOLIDE_API_VERSIONS
+          from kolide_mcp.endpoints import build_all_tools
+          for version in SUPPORTED_KOLIDE_API_VERSIONS:
+              tools = build_all_tools(version)
+              print(f"{version}: {len(tools)} tools build cleanly")
+          PY
+          uv run pytest tests/test_endpoints_sync.py -v
+
+      - name: Open pull request with the reconciled registry
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/sync-endpoints
+          BODY_PATH: ${{ runner.temp }}/endpoints-sync-summary.md
+          NEEDS_HUMAN: ${{ steps.sync.outputs.needs_human }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$BRANCH"
+          git add -- src/kolide_mcp/endpoints.py
+          git commit -m "chore: sync endpoint registry with published K2 specs"
+          git push --force origin "$BRANCH"
+
+          gh label create endpoints --color 1d76db --description "Endpoint registry changes" 2>/dev/null || true
+          gh label create automated --color ededed --description "Opened by automation" 2>/dev/null || true
+
+          title="chore: sync endpoint registry with published K2 specs"
+          if [ "$NEEDS_HUMAN" = "true" ]; then
+            title="$title (needs review)"
+          fi
+
+          label_args=(--label endpoints --label automated)
+          if [ "$NEEDS_HUMAN" = "true" ]; then
+            gh label create needs-review --color d93f0b --description "Automation needs a human decision" 2>/dev/null || true
+            label_args+=(--label needs-review)
+          fi
+
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            echo "Updating existing PR for $BRANCH."
+            gh pr edit "$BRANCH" --title "$title" --body-file "$BODY_PATH"
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$title" \
+              --body-file "$BODY_PATH" \
+              "${label_args[@]}"
+          fi

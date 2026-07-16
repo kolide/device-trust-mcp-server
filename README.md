@@ -21,26 +21,27 @@ An MCP (Model Context Protocol) server that exposes the 1Password Device Trust A
 
 The server does **not** load OpenAPI at runtime. Tools are defined in `src/kolide_mcp/endpoints.py` (`ENDPOINTS`), and the HTTP client sends `x-kolide-api-version` from `get_kolide_api_version()` in `src/kolide_mcp/api_version.py` (overridable via **`KOLIDE_API_VERSION`** in your environment or `.env`).
 
-**Workflow when the Kolide API changes:**
+**Keeping `ENDPOINTS` in sync with the published specs:**
 
-1. **`openapi/`** — Treat `openapi/openapi*.json` as the canonical REST contract snapshot. There is one file per supported version (e.g. `openapi2026-04-07.json`); CI checks `ENDPOINTS` against **all** of them.
-2. **Implementation** — For any real API delta reflected in those JSON files, update `ENDPOINTS` (and `composite_tools.py` / `resources.py` if needed). Set **`KOLIDE_API_VERSION`** in `.env` to the version line you run against.
-3. **Verification** — CI runs drift checks so `ENDPOINTS` stays aligned with the pinned OpenAPI file (path templates are compared with parameter names ignored). To run the same tests locally after `uv sync`:
+The repo does **not** commit OpenAPI snapshots. The specs Kolide publishes as pure JSON at `https://www.kolide.com/docs/openapi/<version>` (one per version in `SUPPORTED_KOLIDE_API_VERSIONS`) are the source of truth, fetched fresh on each run.
+
+1. **Automated reconciliation** — `.github/workflows/sync-endpoints.yml` runs `scripts/sync_endpoints.py` on Tuesdays and Thursdays (and on demand via **Run workflow**). It fetches every supported version's spec and programmatically updates `endpoints.py`: it rewrites the `api_versions` gating, `paginated` flag, and inline `searchable_fields` to match the specs, scaffolds any brand-new operations into a review block, and flags drift that needs a human (removed operations, request-body changes, shared-`_*_FIELDS` drift). When anything changes it opens a PR.
+2. **Run it locally** — after `uv sync`:
 
    ```bash
-   uv run python -m unittest discover -s tests -v
+   uv run python scripts/sync_endpoints.py --check   # report drift, write nothing
+   uv run python scripts/sync_endpoints.py            # apply the reconciliation
    ```
-
-If the pinned OpenAPI file gains operations you do not want as MCP tools yet, add the normalized ``(METHOD, path)`` pair to ``OPENAPI_OPERATIONS_WITHOUT_MCP_TOOL`` in `tests/test_openapi_drift.py` and document why.
+3. **Manual edits** — hand-authored fields (`description`, `search_examples`, `params`) are never touched by the reconciler; refine scaffolded endpoints and set **`KOLIDE_API_VERSION`** in `.env` to the version line you run against.
 
 **Endpoints that exist only on some API versions**
 
-Kolide may expose routes on one dated API line but not another. In `EndpointSpec`, set **`api_versions`** to a `frozenset` of version strings (must be a subset of `SUPPORTED_KOLIDE_API_VERSIONS` in `api_version.py`):
+Kolide may expose routes on one dated API line but not another; the reconciler handles this automatically. In `EndpointSpec`, **`api_versions`** is a `frozenset` of version strings (a subset of `SUPPORTED_KOLIDE_API_VERSIONS` in `api_version.py`):
 
-- **`api_versions=None`** (default) — tool is listed and callable for every supported version, as long as that version’s OpenAPI snapshot includes the operation.
-- **`api_versions=frozenset({"2026-04-07"})`** — tool appears in `list_tools` and works only when `KOLIDE_API_VERSION` is `2026-04-07`; other versions skip it in drift checks and get a clear error if invoked anyway.
+- **`api_versions=None`** (default) — the operation appears in **every** supported version's spec; the tool is listed and callable for all of them.
+- **`api_versions=frozenset({"2026-04-07"})`** — the operation appears only in those versions; the tool works only when `KOLIDE_API_VERSION` matches, and other versions get a clear error if it is invoked anyway. Operations are never dropped for backwards compatibility — one that disappears from a newer version is simply gated to the versions that still expose it.
 
-After adding a new version line to the server, extend `SUPPORTED_KOLIDE_API_VERSIONS`, add `openapi<version>.json`, and adjust `api_versions` on affected specs.
+After adding a new version line to the server, extend `SUPPORTED_KOLIDE_API_VERSIONS`; the next reconciler run gates each `EndpointSpec` for you.
 
 ## Installation
 
