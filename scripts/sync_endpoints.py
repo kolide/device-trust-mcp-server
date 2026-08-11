@@ -2,10 +2,12 @@
 """Reconcile the MCP endpoint registry (``endpoints.py``) with the published K2 specs.
 
 The declarative registry in ``src/kolide_mcp/endpoints.py`` is the implementation
-checklist for the REST contract described by the OpenAPI specs K2 publishes as pure
-JSON at ``https://www.kolide.com/docs/openapi/<version>``. This script fetches the
-published spec for *every* supported Kolide API version, then programmatically
-updates the registry so it mirrors those specs:
+checklist for the REST contract described by the OpenAPI specs K2 publishes,
+unauthenticated, on the API host itself: ``GET /openapi_specifications`` lists every
+released version and its ``spec_url``, and ``GET /openapi_specifications/<version>``
+serves that version's spec as pure JSON. This script discovers the published versions
+from the index, fetches the spec for *every* supported Kolide API version, then
+programmatically updates the registry so it mirrors those specs:
 
 * **``api_versions`` gating** — the same operation is not exposed by every dated
   API version. For each ``EndpointSpec`` we compute the exact set of supported
@@ -27,7 +29,8 @@ updates the registry so it mirrors those specs:
   operation ``summary`` (falling back to a ``TODO`` placeholder when absent);
   descriptions on *existing* endpoints are never touched.
 * **Drift we do not auto-apply** (request-body parameters, operations that vanished
-  from *all* supported specs) is reported for a human to resolve.
+  from *all* supported specs, a dated version the API publishes that this server does
+  not support yet) is reported for a human to resolve.
 
 Edits are surgical: the file is parsed with :mod:`ast`, only the spans of the
 reconciled fields are rewritten, and every hand-authored ``description`` /
@@ -38,16 +41,23 @@ demand); when it changes ``endpoints.py`` the workflow opens a PR with the diff.
 The repo does not commit OpenAPI snapshots — the live published specs are the
 source of truth on every run.
 
+Every run writes its report to ``$GITHUB_STEP_SUMMARY`` (when set) as well as to
+``$SYNC_SUMMARY_PATH``, which the workflow reuses as the PR body. A run whose only
+drift needs a human produces no PR, so the step summary is the only place that report
+surfaces — the workflow turns that case red on purpose.
+
 Exit codes:
     0  registry already matches the specs (or ``--check`` found nothing)
     1  registry updated (or, with ``--check``, drift was found)
-    2  a spec could not be fetched / was not valid OpenAPI JSON
-    3  drift was found that requires a human (removed operations, body-param drift)
+    2  a spec could not be fetched / was not valid OpenAPI JSON, or the reconciler hit
+       an unexpected exception (both are hard failures for the workflow)
+    3  drift was found that requires a human (removed operations, body-param drift,
+       shared-constant drift, an unsupported published version)
 
 Usage:
     uv run python scripts/sync_endpoints.py            # fetch specs, rewrite the registry
     uv run python scripts/sync_endpoints.py --check     # report only, never write
-    DOCS_BASE_URL=https://staging.kolide.com uv run python scripts/sync_endpoints.py
+    KOLIDE_API_URL=https://api.staging.kolide.com uv run python scripts/sync_endpoints.py
 """
 
 from __future__ import annotations
@@ -57,6 +67,7 @@ import ast
 import json
 import os
 import sys
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,7 +79,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from kolide_mcp.api_version import SUPPORTED_KOLIDE_API_VERSIONS  # noqa: E402
 
 ENDPOINTS_PATH = REPO_ROOT / "src" / "kolide_mcp" / "endpoints.py"
-DEFAULT_DOCS_BASE_URL = "https://www.kolide.com"
+# Same host and env var the runtime client uses (``src/kolide_mcp/client.py``); the
+# spec endpoints live on the API itself and need no authentication.
+DEFAULT_API_BASE_URL = "https://api.kolide.com"
+SPEC_INDEX_PATH = "/openapi_specifications"
 REQUEST_TIMEOUT_SECONDS = 30.0
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
@@ -76,21 +90,67 @@ _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 # ===== Spec fetching =====
 
 
+def spec_index_url(base_url: str) -> str:
+    """Discovery URL listing every released spec (``GET /openapi_specifications``)."""
+    return f"{base_url.rstrip('/')}{SPEC_INDEX_PATH}"
+
+
 def spec_url(base_url: str, version: str) -> str:
-    """Pure-JSON spec URL the K2 docs serve for *version*."""
-    return f"{base_url.rstrip('/')}/docs/openapi/{version}"
+    """Pure-JSON spec URL the API serves for *version*."""
+    return f"{base_url.rstrip('/')}{SPEC_INDEX_PATH}/{version}"
 
 
-def fetch_published_spec(base_url: str, version: str) -> dict:
-    """Return the parsed published spec for *version*, or raise ValueError."""
-    url = spec_url(base_url, version)
+def _get_json(url: str) -> dict:
+    """GET *url* and parse it as a JSON object, or raise ValueError."""
     response = httpx.get(url, timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=True)
     response.raise_for_status()
     try:
         parsed = json.loads(response.text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"{url} did not return valid JSON: {exc}") from exc
-    if not isinstance(parsed, dict) or "openapi" not in parsed:
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{url} did not return a JSON object")
+    return parsed
+
+
+def fetch_spec_index(base_url: str) -> dict[str, str]:
+    """Return ``{version: spec_url}`` for every spec the API publishes.
+
+    ``GET /openapi_specifications`` renders the usual ``{"data": [...]}`` envelope with
+    a ``version`` and ``spec_url`` per released version. The advertised ``spec_url`` is
+    honoured only when it points at *base_url* — so a staging/dev override is never
+    silently redirected to the production spec — otherwise it is rebuilt from
+    *base_url*.
+    """
+    url = spec_index_url(base_url)
+    payload = _get_json(url)
+    entries = payload.get("data")
+    if not isinstance(entries, list):
+        raise ValueError(f"{url} did not return a 'data' list of published specs")
+
+    origin = base_url.rstrip("/")
+    index: dict[str, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        version = entry.get("version")
+        if not isinstance(version, str) or not version:
+            continue
+        advertised = entry.get("spec_url")
+        index[version] = (
+            advertised
+            if isinstance(advertised, str) and advertised.startswith(origin)
+            else spec_url(base_url, version)
+        )
+    if not index:
+        raise ValueError(f"{url} listed no published specs")
+    return index
+
+
+def fetch_published_spec(url: str, version: str) -> dict:
+    """Return the parsed published spec for *version*, or raise ValueError."""
+    parsed = _get_json(url)
+    if "openapi" not in parsed:
         raise ValueError(f"{url} did not return an OpenAPI document (missing 'openapi' key)")
     declared = (parsed.get("info") or {}).get("version")
     if declared != version:
@@ -294,6 +354,11 @@ class SourceEditor:
             raise ValueError(f"expected {needle!r} after byte {start}")
         return idx
 
+    def find_within(self, needle: str, start: int, end: int) -> int | None:
+        """First offset of *needle* in ``[start, end)``, or None. Never scans past *end*."""
+        idx = self._data.find(needle.encode("utf-8"), start, end)
+        return None if idx < 0 else idx
+
     def result(self) -> str:
         edits = sorted(self._edits, key=lambda e: e[0])
         for prev, nxt in zip(edits, edits[1:]):
@@ -339,6 +404,7 @@ class Report:
     body_drift: list[str] = field(default_factory=list)
     new_operations: list[str] = field(default_factory=list)
     removed_operations: list[str] = field(default_factory=list)
+    unsupported_versions: list[str] = field(default_factory=list)
 
     @property
     def auto_applied(self) -> bool:
@@ -355,6 +421,7 @@ class Report:
             self.removed_operations
             or self.body_drift
             or self.searchable_constant_drift
+            or self.unsupported_versions
         )
 
 
@@ -373,14 +440,23 @@ def _fields_from_node(node: ast.expr | None) -> tuple[list[str] | None, bool]:
 def _insert_keyword_after_last(
     editor: SourceEditor, spec_node: SpecNode, text: str
 ) -> None:
-    """Insert ``\\n        <text>`` after the last keyword's trailing comma."""
+    """Insert ``<text>`` on its own line after the last keyword argument.
+
+    The comma search is bounded by the ``EndpointSpec(...)`` call itself: an entry
+    written without a trailing comma after its last kwarg gets one added here rather
+    than splicing the new keyword in after some unrelated comma further down the file.
+    """
     last = max(
         spec_node.keywords.values(),
         key=lambda kw: kw.value.end_lineno * 10_000 + kw.value.end_col_offset,
     )
     _, value_end = editor.node_span(last.value)
-    comma = editor.find_next(",", value_end)
-    editor.insert(comma + 1, f"\n        {text}")
+    _, call_end = editor.node_span(spec_node.call)
+    comma = editor.find_within(",", value_end, call_end)
+    if comma is None:
+        editor.insert(value_end, f",\n        {text}")
+    else:
+        editor.insert(comma + 1, f"\n        {text}")
 
 
 def reconcile(
@@ -476,16 +552,22 @@ def reconcile(
         endpoints_list = find_endpoints_list(tree)
         if endpoints_list is None:
             raise ValueError("could not locate the ENDPOINTS list in the source")
-        # Insert immediately after the last existing element's trailing comma.
+        # Insert after the last existing element's trailing comma, searching no further
+        # than the list's closing bracket so a missing trailing comma is added instead
+        # of matching a comma somewhere later in the file.
         last_elt_end = editor.node_span(endpoints_list.elts[-1])[1]
-        comma = editor.find_next(",", last_elt_end)
+        list_end = editor.node_span(endpoints_list)[1]
+        comma = editor.find_within(",", last_elt_end, list_end)
         block = "\n\n    # --- AUTO-GENERATED: review & refine (scripts/sync_endpoints.py) ---"
         for info in new_infos:
             block += _scaffold_endpoint(info, supported)
             report.new_operations.append(
                 f"{info.method} {info.raw_path} (versions: {', '.join(sorted(info.versions))})"
             )
-        editor.insert(comma + 1, block)
+        if comma is None:
+            editor.insert(last_elt_end, "," + block)
+        else:
+            editor.insert(comma + 1, block)
 
     return (editor.result() if editor.dirty else source), report
 
@@ -534,40 +616,58 @@ def _scaffold_endpoint(info: OperationInfo, supported: tuple[str, ...]) -> str:
 
 
 def load_specs(
-    supported: tuple[str, ...], base_url: str
+    supported: tuple[str, ...], base_url: str, index: dict[str, str]
 ) -> tuple[dict[str, dict], bool]:
     """Fetch each supported version's published spec. Returns (parsed, fetch_failed)."""
     parsed: dict[str, dict] = {}
     failed = False
     for version in supported:
-        url = spec_url(base_url, version)
+        url = index.get(version)
+        if url is None:
+            print(
+                f"::error::{version} is in SUPPORTED_KOLIDE_API_VERSIONS but "
+                f"{spec_index_url(base_url)} does not publish a spec for it.",
+                file=sys.stderr,
+            )
+            failed = True
+            continue
         try:
-            parsed[version] = fetch_published_spec(base_url, version)
+            parsed[version] = fetch_published_spec(url, version)
         except (httpx.HTTPError, ValueError) as exc:
             print(f"::error::could not fetch {url}: {exc}", file=sys.stderr)
             failed = True
             continue
-        print(f"{version}: fetched published spec")
+        print(f"{version}: fetched published spec from {url}")
     return parsed, failed
 
 
 # ===== GitHub Actions plumbing =====
 
 
-def emit_outputs(report: Report, changed: bool) -> None:
-    gh_out = os.getenv("GITHUB_OUTPUT")
-    if gh_out:
-        with open(gh_out, "a", encoding="utf-8") as fh:
-            fh.write(f"changed={'true' if changed else 'false'}\n")
-            fh.write(f"needs_human={'true' if report.needs_human else 'false'}\n")
-
+def build_summary(report: Report, changed: bool) -> str:
+    """The markdown report, used both as the PR body and as the job summary."""
+    versions = ", ".join(f"`{v}`" for v in SUPPORTED_KOLIDE_API_VERSIONS)
     lines = ["## Endpoint registry sync", ""]
-    if not changed and not report.needs_human:
+    if not report.auto_applied and not report.needs_human:
         lines.append("`endpoints.py` already mirrors the published specs. No changes.")
-    else:
+    elif changed:
         lines.append(
             "Reconciled `src/kolide_mcp/endpoints.py` against the specs published for "
-            f"{', '.join(f'`{v}`' for v in SUPPORTED_KOLIDE_API_VERSIONS)}."
+            f"{versions}."
+        )
+    else:
+        lines.append(
+            "Compared `src/kolide_mcp/endpoints.py` against the specs published for "
+            f"{versions}. The drift below was **not applied** — `endpoints.py` is "
+            "unchanged."
+        )
+    if report.needs_human and not changed:
+        lines.extend(
+            [
+                "",
+                "**Nothing was applied automatically, so no pull request carries this.** "
+                "The drift below has to be resolved by hand.",
+            ]
         )
     _section(lines, "API-version gating updated", report.api_version_changes)
     _section(lines, "Pagination updated", report.paginated_changes)
@@ -580,9 +680,39 @@ def emit_outputs(report: Report, changed: bool) -> None:
         "⚠️ Shared `_*_FIELDS` constant differs from spec — needs a human",
         report.searchable_constant_drift,
     )
+    _section(
+        lines,
+        "⚠️ Published API version this server does not support — needs a human",
+        report.unsupported_versions,
+    )
+    return "\n".join(lines) + "\n"
+
+
+def write_step_summary(markdown: str) -> None:
+    """Append *markdown* to the job summary so every run leaves a visible report.
+
+    A run whose only drift needs a human opens no PR, so without this the report would
+    be written to a temp file nobody ever reads.
+    """
+    step_summary = os.getenv("GITHUB_STEP_SUMMARY")
+    if not step_summary:
+        return
+    with open(step_summary, "a", encoding="utf-8") as fh:
+        fh.write(markdown)
+
+
+def emit_outputs(report: Report, changed: bool) -> None:
+    gh_out = os.getenv("GITHUB_OUTPUT")
+    if gh_out:
+        with open(gh_out, "a", encoding="utf-8") as fh:
+            fh.write(f"changed={'true' if changed else 'false'}\n")
+            fh.write(f"needs_human={'true' if report.needs_human else 'false'}\n")
+
+    markdown = build_summary(report, changed)
     Path(
         os.getenv("SYNC_SUMMARY_PATH", REPO_ROOT / ".endpoints-sync-summary.md")
-    ).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ).write_text(markdown, encoding="utf-8")
+    write_step_summary(markdown)
 
 
 def _section(lines: list[str], title: str, items: list[str]) -> None:
@@ -602,22 +732,25 @@ def _print_report(report: Report) -> None:
         ("removed operations", report.removed_operations),
         ("body drift", report.body_drift),
         ("shared-constant drift", report.searchable_constant_drift),
+        ("unsupported published version", report.unsupported_versions),
     ):
         for item in items:
             print(f"  [{title}] {item}")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--check", action="store_true", help="Report only; never write files."
-    )
-    args = parser.parse_args()
-
-    base_url = os.getenv("DOCS_BASE_URL", DEFAULT_DOCS_BASE_URL)
+def _run(args: argparse.Namespace) -> int:
+    base_url = os.getenv("KOLIDE_API_URL", DEFAULT_API_BASE_URL)
     supported = SUPPORTED_KOLIDE_API_VERSIONS
 
-    parsed, fetch_failed = load_specs(supported, base_url)
+    index_url = spec_index_url(base_url)
+    try:
+        index = fetch_spec_index(base_url)
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"::error::could not fetch {index_url}: {exc}", file=sys.stderr)
+        return 2
+    print(f"{index_url} publishes: {', '.join(sorted(index))}")
+
+    parsed, fetch_failed = load_specs(supported, base_url, index)
     if fetch_failed:
         return 2
 
@@ -634,6 +767,16 @@ def main() -> int:
     )
     changed = updated != source
 
+    # Supporting a newly released dated version is a hand-made decision (it changes
+    # the tools this server exposes and its default version) — the reconciler can only
+    # flag that the API is publishing one we do not list.
+    for version in sorted(index):
+        if version not in supported:
+            report.unsupported_versions.append(
+                f"`{version}` is published at {index[version]} but is missing from "
+                "`SUPPORTED_KOLIDE_API_VERSIONS` (`src/kolide_mcp/api_version.py`)"
+            )
+
     print(f"Reconciled {len(spec_nodes)} endpoints against {len(parsed)} spec(s).")
     _print_report(report)
 
@@ -647,6 +790,37 @@ def main() -> int:
     if report.needs_human:
         return 3
     return 1 if changed else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check", action="store_true", help="Report only; never write files."
+    )
+    args = parser.parse_args()
+
+    # Any unexpected exception has to be loud: it must not share an exit code with
+    # "registry updated", and it must leave a report behind even though the run wrote
+    # no step outputs.
+    try:
+        return _run(args)
+    except Exception:
+        detail = traceback.format_exc()
+        print(detail, file=sys.stderr)
+        print(
+            "::error::scripts/sync_endpoints.py raised an unexpected exception and did "
+            "not complete.",
+            file=sys.stderr,
+        )
+        write_step_summary(
+            "## Endpoint registry sync\n\n"
+            "❌ The reconciler raised an unexpected exception and did not complete, so "
+            "this run reconciled nothing. Read the traceback, then check the working "
+            "tree before trusting it.\n\n"
+            f"```\n{detail}```\n"
+        )
+        # Same exit code as a fetch failure: the workflow treats both as hard failures.
+        return 2
 
 
 if __name__ == "__main__":

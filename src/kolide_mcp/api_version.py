@@ -1,8 +1,9 @@
 """Kolide REST API version sent on every request as ``X-Kolide-Api-Version``.
 
 Kolide publishes multiple dated API versions; this server supports a fixed set.
-See https://www.kolide.com/docs/developers/api (Developers → API). The published
-specs at ``https://www.kolide.com/docs/openapi/<version>`` are the source of truth;
+See https://www.kolide.com/docs/developers/api (Developers → API). The specs the API
+publishes at ``https://api.kolide.com/openapi_specifications/<version>`` (indexed by
+``https://api.kolide.com/openapi_specifications``) are the source of truth;
 ``scripts/sync_endpoints.py`` reconciles ``endpoints.py`` against them.
 """
 

@@ -52,9 +52,10 @@ def _build_api_versions_doc() -> str:
             "",
             "## Keeping the registry in sync",
             "",
-            "`endpoints.py` is reconciled against the specs Kolide publishes at "
-            "`https://www.kolide.com/docs/openapi/<version>` by a scheduled workflow "
-            "(`.github/workflows/sync-endpoints.yml`), which opens a PR when they drift.",
+            "`endpoints.py` is reconciled against the specs the API publishes at "
+            "`https://api.kolide.com/openapi_specifications/<version>` by a scheduled "
+            "workflow (`.github/workflows/sync-endpoints.yml`), which opens a PR when "
+            "they drift.",
         ]
     )
     return "\n".join(lines)

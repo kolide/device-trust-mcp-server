@@ -23,15 +23,17 @@ The server does **not** load OpenAPI at runtime. Tools are defined in `src/kolid
 
 **Keeping `ENDPOINTS` in sync with the published specs:**
 
-The repo does **not** commit OpenAPI snapshots. The specs Kolide publishes as pure JSON at `https://www.kolide.com/docs/openapi/<version>` (one per version in `SUPPORTED_KOLIDE_API_VERSIONS`) are the source of truth, fetched fresh on each run.
+The repo does **not** commit OpenAPI snapshots. The specs the API itself publishes — `GET https://api.kolide.com/openapi_specifications` lists every released version and its `spec_url`, `GET https://api.kolide.com/openapi_specifications/<version>` serves one as pure JSON, neither needs authentication — are the source of truth, fetched fresh on each run.
 
-1. **Automated reconciliation** — `.github/workflows/sync-endpoints.yml` runs `scripts/sync_endpoints.py` on Tuesdays and Thursdays (and on demand via **Run workflow**). It fetches every supported version's spec and programmatically updates `endpoints.py`: it rewrites the `api_versions` gating, `paginated` flag, and inline `searchable_fields` to match the specs, scaffolds any brand-new operations into a review block, and flags drift that needs a human (removed operations, request-body changes, shared-`_*_FIELDS` drift). When anything changes it opens a PR.
+1. **Automated reconciliation** — `.github/workflows/sync-endpoints.yml` runs `scripts/sync_endpoints.py` on Tuesdays and Thursdays (and on demand via **Run workflow**). It fetches every supported version's spec and programmatically updates `endpoints.py`: it rewrites the `api_versions` gating, `paginated` flag, and inline `searchable_fields` to match the specs, scaffolds any brand-new operations into a review block, and flags drift that needs a human (removed operations, request-body changes, shared-`_*_FIELDS` drift, a published version missing from `SUPPORTED_KOLIDE_API_VERSIONS`). When anything changes it opens a PR; every run — including a clean one — writes its report to the job summary, and a run whose drift needs a human but produces no PR fails on purpose so the report gets read.
 2. **Run it locally** — after `uv sync`:
 
    ```bash
    uv run python scripts/sync_endpoints.py --check   # report drift, write nothing
    uv run python scripts/sync_endpoints.py            # apply the reconciliation
    ```
+
+   Set **`KOLIDE_API_URL`** to point it at a different host; it defaults to `https://api.kolide.com`.
 3. **Manual edits** — hand-authored fields (`description`, `search_examples`, `params`) are never touched by the reconciler; refine scaffolded endpoints and set **`KOLIDE_API_VERSION`** in `.env` to the version line you run against.
 
 **Endpoints that exist only on some API versions**
