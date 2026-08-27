@@ -40,6 +40,39 @@ def _query_param(fields: list[str]) -> dict:
     return {"in": "query", "name": "query", "examples": examples}
 
 
+def _request_body_from_spec(spec) -> dict | None:
+    """A ``requestBody`` mirroring *spec*'s declared non-path params.
+
+    The live specs document a JSON body for every write operation, so a fixture that
+    omitted one would make the registry's own params look like drift.
+    """
+    if spec.method.upper() not in ("POST", "PATCH", "PUT"):
+        return None
+    path_params = {
+        seg[1:-1]
+        for seg in spec.path.strip("/").split("/")
+        if seg.startswith("{") and seg.endswith("}")
+    }
+    properties = {}
+    for param in spec.params or ():
+        if param.name in path_params:
+            continue
+        schema: dict = {"type": param.type}
+        if param.type == "array" and param.items_type:
+            schema["items"] = {"type": param.items_type}
+        properties[param.name] = schema
+    if not properties:
+        return None
+    return {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": {"type": "object", "properties": properties}
+            }
+        },
+    }
+
+
 def _spec_from_registry(
     *, version=None, fields_by_name=None, extra_ops=(), drop_names=()
 ) -> dict:
@@ -68,7 +101,11 @@ def _spec_from_registry(
         fields = fields_by_name.get(spec.name, spec.searchable_fields)
         if fields:
             params.append(_query_param(fields))
-        item[spec.method.lower()] = {"parameters": params}
+        op: dict = {"parameters": params}
+        body = _request_body_from_spec(spec)
+        if body is not None:
+            op["requestBody"] = body
+        item[spec.method.lower()] = op
     for method, raw_path, fields, paginated, *rest in extra_ops:
         item = paths.setdefault(raw_path, {})
         params = []
@@ -85,6 +122,11 @@ def _spec_from_registry(
         "info": {"version": version or "test"},
         "paths": paths,
     }
+
+
+def se_param(name: str, type_: str = "string", items_type=None):
+    """A minimal stand-in for ``endpoints.Param`` for direct helper tests."""
+    return types.SimpleNamespace(name=name, type=type_, items_type=items_type)
 
 
 def _reconcile_with(specs_by_version):
@@ -271,6 +313,194 @@ ENDPOINTS = [
 
 TRAILING = ("this", "tuple", "has", "commas")
 '''
+
+
+class BodyParamDriftTests(unittest.TestCase):
+    """The guard that would have caught KS-270.
+
+    ``server._dispatch`` uses each declared non-path ``Param`` name as a JSON body key
+    verbatim, so a misnamed or mistyped param is a 400 no tool input can work around.
+    Name/type disagreements are fatal (``needs_human``); documented properties the
+    registry does not expose are informational only.
+    """
+
+    def _specs_with_body(self, endpoint_name: str, properties: dict) -> dict:
+        """Registry-mirroring specs, with one operation's body schema overridden."""
+        rt = next(s for s in RUNTIME_SPECS if s.name == endpoint_name)
+        specs = {}
+        for version in SUPPORTED:
+            spec = _spec_from_registry(version=version)
+            op = spec["paths"][rt.path][rt.method.lower()]
+            op["requestBody"] = {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {"type": "object", "properties": properties}
+                    }
+                },
+            }
+            specs[version] = spec
+        return specs
+
+    def test_declared_key_the_api_rejects_is_fatal(self):
+        # KS-270 exactly: the tool declares device_ids, the spec accepts device_id.
+        _, report = _reconcile_with(
+            self._specs_with_body(
+                "add_device_to_group",
+                {"device_id": {"type": "string"}},
+            )
+        )
+        self.assertTrue(report.needs_human)
+        self.assertTrue(
+            any(
+                "add_device_to_group" in d and "does not accept" in d and "device_ids" in d
+                for d in report.body_drift
+            ),
+            report.body_drift,
+        )
+
+    def test_scalar_type_mismatch_is_fatal(self):
+        _, report = _reconcile_with(
+            self._specs_with_body(
+                "update_registration_request",
+                {
+                    "status": {"type": "boolean"},
+                    "internal_message": {"type": "string"},
+                    "end_user_denial_message": {"type": "string"},
+                },
+            )
+        )
+        self.assertTrue(report.needs_human)
+        self.assertTrue(
+            any("status" in d and "disagrees" in d for d in report.body_drift),
+            report.body_drift,
+        )
+
+    def test_array_items_type_mismatch_is_fatal(self):
+        # create_live_query_campaign takes targeted_device_ids as integers, not strings.
+        _, report = _reconcile_with(
+            self._specs_with_body(
+                "create_live_query_campaign",
+                {
+                    "targeted_device_ids": {"type": "array", "items": {"type": "string"}},
+                    "sql": {"type": "string"},
+                    "name": {"type": "string"},
+                    "target_all_devices": {"type": "boolean"},
+                    "target_macs": {"type": "boolean"},
+                    "target_windows_devices": {"type": "boolean"},
+                    "target_linux_devices": {"type": "boolean"},
+                },
+            )
+        )
+        self.assertTrue(report.needs_human)
+        self.assertTrue(
+            any("targeted_device_ids" in d and "disagrees" in d for d in report.body_drift),
+            report.body_drift,
+        )
+
+    def test_unexposed_property_is_informational_only(self):
+        _, report = _reconcile_with(
+            self._specs_with_body(
+                "add_device_to_group",
+                {
+                    "device_ids": {"type": "array", "items": {"type": "string"}},
+                    "an_undocumented_extra": {"type": "string"},
+                },
+            )
+        )
+        self.assertFalse(report.needs_human)
+        self.assertFalse(report.body_drift)
+        self.assertTrue(
+            any(
+                "add_device_to_group" in u and "an_undocumented_extra" in u
+                for u in report.body_unexposed
+            ),
+            report.body_unexposed,
+        )
+
+    def test_number_and_integer_are_treated_as_equivalent(self):
+        _, report = _reconcile_with(
+            self._specs_with_body(
+                "update_check_configuration",
+                {
+                    "block_auth_grace_period_days": {"type": "number"},
+                    "auth_check_run_shelf_life_seconds": {"type": "number"},
+                },
+            )
+        )
+        self.assertFalse(
+            any("disagrees" in d for d in report.body_drift), report.body_drift
+        )
+
+    def test_opaque_body_param_endpoints_are_skipped(self):
+        """A ``body_param`` forwards the caller's whole object; there are no keys to diff."""
+        rt = next(iter(RUNTIME_SPECS))
+        fake = se.OperationInfo(
+            method="POST",
+            normalized_path="/thing",
+            raw_path="/thing",
+            has_body=True,
+            body_properties={"only_this": ("string", None)},
+        )
+        node = se.SpecNode("x", "POST", "/thing", call=None, keywords={})
+        report = se.Report()
+        stub = types.SimpleNamespace(
+            params=[se_param("something_else")], body_param="configuration"
+        )
+        se._check_body_params("x", node, stub, fake, report)
+        self.assertFalse(report.body_drift)
+        self.assertFalse(report.body_unexposed)
+
+
+class RequiredNessIsNotSpecDerivedTests(unittest.TestCase):
+    """``Param.required`` is hand-authored and the reconciler must never touch it.
+
+    Neither published spec declares a schema-level ``required`` list on any request
+    body, so the specs cannot distinguish a mandatory field from an optional one.
+    Deriving ``required`` from them would silently unmark every param the API really
+    does demand (check_id, authentication_mode, device_ids, check_data, sql) and turn
+    each into a call that is schema-valid but always fails. See
+    ``tests/test_request_bodies.py`` for the pinned required sets.
+    """
+
+    def _required_by_endpoint(self, endpoints) -> dict[str, set[str]]:
+        return {
+            e.name: {p.name for p in (e.params or ()) if p.required}
+            for e in endpoints
+        }
+
+    def test_reconcile_preserves_hand_authored_required(self):
+        specs = {v: _spec_from_registry(version=v) for v in SUPPORTED}
+        source, _ = _reconcile_with(specs)
+
+        self.assertEqual(
+            self._required_by_endpoint(_load_endpoints_from_source(source)),
+            self._required_by_endpoint(RUNTIME_SPECS),
+        )
+
+    def test_empty_spec_required_list_does_not_unmark_a_param(self):
+        """A spec that requires nothing must not make check_id optional again."""
+        specs = {}
+        for version in SUPPORTED:
+            spec = _spec_from_registry(version=version)
+            rt = next(s for s in RUNTIME_SPECS if s.name == "create_check_refresh")
+            schema = (
+                spec["paths"][rt.path][rt.method.lower()]["requestBody"]
+                ["content"]["application/json"]["schema"]
+            )
+            schema["required"] = []
+            specs[version] = spec
+
+        source, report = _reconcile_with(specs)
+        rewritten = next(
+            e
+            for e in _load_endpoints_from_source(source)
+            if e.name == "create_check_refresh"
+        )
+        param = next(p for p in rewritten.params if p.name == "check_id")
+
+        self.assertTrue(param.required)
+        self.assertFalse(any("check_id" in d for d in report.body_drift), report.body_drift)
 
 
 class TrailingCommaTests(unittest.TestCase):
