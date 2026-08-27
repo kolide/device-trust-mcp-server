@@ -206,6 +206,42 @@ def operation_has_body(operation: dict) -> bool:
     return bool(operation.get("requestBody"))
 
 
+def _resolve_schema(schema: dict, spec: dict) -> dict:
+    """Follow a single local ``$ref`` into ``components.schemas``."""
+    ref = schema.get("$ref")
+    if not ref or not ref.startswith("#/components/schemas/"):
+        return schema
+    name = ref.rsplit("/", 1)[-1]
+    return ((spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+
+def extract_body_properties(
+    operation: dict, spec: dict
+) -> dict[str, tuple[str | None, str | None]]:
+    """JSON body properties of *operation* as ``{name: (type, items_type)}``.
+
+    ``server._dispatch`` turns each declared non-path ``Param`` name into a JSON body
+    key verbatim, so these names are the contract a write tool has to match exactly.
+
+    Names and types only: the schema's ``required`` list is deliberately ignored,
+    because no published version declares one on any request body. Reconciling
+    ``Param.required`` from a spec that requires nothing would unmark every param the
+    API really does demand, so required-ness stays hand-authored and is pinned by
+    ``tests/test_request_bodies.py``.
+    """
+    body = operation.get("requestBody") or {}
+    schema = ((body.get("content") or {}).get("application/json") or {}).get("schema") or {}
+    schema = _resolve_schema(schema, spec)
+    props = schema.get("properties") or {}
+    out: dict[str, tuple[str | None, str | None]] = {}
+    for key, value in props.items():
+        if not isinstance(value, dict):
+            continue
+        items = value.get("items") if isinstance(value.get("items"), dict) else {}
+        out[key] = (value.get("type"), (items or {}).get("type"))
+    return out
+
+
 @dataclass
 class OperationInfo:
     """Merged view of one operation across every supported spec version."""
@@ -217,6 +253,7 @@ class OperationInfo:
     searchable_fields: list[str] | None = None
     paginated: bool = False
     has_body: bool = False
+    body_properties: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
     summary: str = ""
 
     def api_versions_gate(self, supported: tuple[str, ...]) -> frozenset[str] | None:
@@ -263,6 +300,7 @@ def collect_operations(
                 info.searchable_fields = extract_searchable_fields(item[method])
                 info.paginated = operation_is_paginated(item[method])
                 info.has_body = operation_has_body(item[method])
+                info.body_properties = extract_body_properties(item[method], spec)
                 info.summary = (item[method].get("summary") or "").strip()
     return ops
 
@@ -402,6 +440,7 @@ class Report:
     searchable_changes: list[str] = field(default_factory=list)
     searchable_constant_drift: list[str] = field(default_factory=list)
     body_drift: list[str] = field(default_factory=list)
+    body_unexposed: list[str] = field(default_factory=list)
     new_operations: list[str] = field(default_factory=list)
     removed_operations: list[str] = field(default_factory=list)
     unsupported_versions: list[str] = field(default_factory=list)
@@ -457,6 +496,101 @@ def _insert_keyword_after_last(
         editor.insert(value_end, f",\n        {text}")
     else:
         editor.insert(comma + 1, f"\n        {text}")
+
+
+def _path_param_names(path: str) -> set[str]:
+    """Names of the ``{placeholder}`` segments in *path*."""
+    return {
+        seg[1:-1]
+        for seg in path.strip("/").split("/")
+        if seg.startswith("{") and seg.endswith("}")
+    }
+
+
+def _declared_body_params(rt, path: str) -> dict[str, tuple[str | None, str | None]]:
+    """Non-path params of a runtime EndpointSpec as ``{name: (type, items_type)}``."""
+    path_params = _path_param_names(path)
+    return {
+        p.name: (p.type, p.items_type)
+        for p in (rt.params or [])
+        if p.name not in path_params
+    }
+
+
+#: JSON Schema types the API and the registry spell differently but mean identically.
+_TYPE_ALIASES: dict[str, str] = {"number": "integer"}
+
+
+def _types_match(declared: str | None, spec_type: str | None) -> bool:
+    if declared is None or spec_type is None:
+        return True  # nothing to compare against
+    return _TYPE_ALIASES.get(declared, declared) == _TYPE_ALIASES.get(spec_type, spec_type)
+
+
+def _check_body_params(name: str, node: SpecNode, rt, info: OperationInfo, report: Report) -> None:
+    """Diff declared body params against the published request-body schema.
+
+    Fatal (``body_drift``, exit 3): a declared param the API does not accept, or a
+    type that disagrees with the spec — both produce a 400 no caller can work around.
+    Informational (``body_unexposed``): a documented property no tool input reaches.
+    """
+    if rt is None:
+        return
+
+    # An opaque ``body_param`` forwards the caller's whole object as the body, so
+    # there are no per-field names to verify here.
+    if getattr(rt, "body_param", None):
+        return
+
+    declared = _declared_body_params(rt, node.path)
+
+    if not info.has_body:
+        if declared:
+            report.body_drift.append(
+                f"kolide_{name}: params are defined but the spec declares no request body "
+                f"({sorted(declared)})"
+            )
+        return
+
+    spec_props = info.body_properties
+    if not spec_props:
+        if not declared:
+            report.body_drift.append(
+                f"kolide_{name}: spec declares a request body but no params are defined"
+            )
+        return
+
+    if not declared:
+        report.body_drift.append(
+            f"kolide_{name}: spec declares a request body but no params are defined "
+            f"(spec accepts {sorted(spec_props)})"
+        )
+        return
+
+    rejected = sorted(set(declared) - set(spec_props))
+    if rejected:
+        report.body_drift.append(
+            f"kolide_{name}: sends body keys the API does not accept: {rejected} "
+            f"(spec accepts {sorted(spec_props)})"
+        )
+
+    mismatched = [
+        f"{key} (code={declared[key][0]}, spec={spec_props[key][0]})"
+        for key in sorted(set(declared) & set(spec_props))
+        if not _types_match(declared[key][0], spec_props[key][0])
+        or (
+            declared[key][0] == "array"
+            and not _types_match(declared[key][1], spec_props[key][1])
+        )
+    ]
+    if mismatched:
+        report.body_drift.append(
+            f"kolide_{name}: body param type disagrees with the spec: {', '.join(mismatched)}"
+        )
+
+    unexposed = sorted(set(spec_props) - set(declared))
+    if unexposed:
+        report.body_unexposed.append(f"kolide_{name}: {unexposed}")
 
 
 def reconcile(
@@ -537,12 +671,9 @@ def reconcile(
                 )
             # desired_fields empty while code has some: leave for human (rare).
 
-        # --- request body presence (report only; descriptions are curated) ---
-        has_params = bool(rt.params) if rt else False
-        if info.has_body and not has_params and info.method in ("POST", "PATCH", "PUT"):
-            report.body_drift.append(
-                f"kolide_{name}: spec declares a request body but no params are defined"
-            )
+        # --- request body params (report only; names/descriptions are curated) ---
+        if info.method in ("POST", "PATCH", "PUT"):
+            _check_body_params(name, node, rt, info, report)
 
     # --- new operations: scaffold into a review block ---
     new_infos = [
@@ -677,6 +808,11 @@ def build_summary(report: Report, changed: bool) -> str:
     _section(lines, "⚠️ Request-body drift — needs a human", report.body_drift)
     _section(
         lines,
+        "Documented body properties not exposed as tool inputs (informational)",
+        report.body_unexposed,
+    )
+    _section(
+        lines,
         "⚠️ Shared `_*_FIELDS` constant differs from spec — needs a human",
         report.searchable_constant_drift,
     )
@@ -731,6 +867,7 @@ def _print_report(report: Report) -> None:
         ("new operations", report.new_operations),
         ("removed operations", report.removed_operations),
         ("body drift", report.body_drift),
+        ("body params not exposed", report.body_unexposed),
         ("shared-constant drift", report.searchable_constant_drift),
         ("unsupported published version", report.unsupported_versions),
     ):

@@ -21,6 +21,8 @@ class Param:
     type: str = "string"
     required: bool = False
     items_type: str | None = None
+    #: Allowed values, surfaced as JSON Schema ``enum`` so callers cannot invent one.
+    enum: list[str] | None = None
 
 
 @dataclass
@@ -209,8 +211,9 @@ ENDPOINTS: list[EndpointSpec] = [
         method="POST",
         path="/devices/{device_id}/check_refreshes",
         params=[
-            Param("check_ids", "Optional list of specific check IDs to refresh",
-                  type="array", items_type="string"),
+            Param("check_id",
+                  "The identifier of the check that should be refreshed on the device",
+                  required=True),
         ],
     ),
     EndpointSpec(
@@ -253,11 +256,12 @@ ENDPOINTS: list[EndpointSpec] = [
     ),
     EndpointSpec(
         name="add_device_to_group",
-        description="Add a Device to a Device Group in 1Password Device Trust (Kolide K2)",
+        description="Add one or more Devices to a Device Group in 1Password Device Trust (Kolide K2)",
         method="POST",
         path="/device_groups/{device_group_id}/memberships",
         params=[
-            Param("device_id", "The ID of the device to add", required=True),
+            Param("device_ids", "The IDs of the devices to add to the group",
+                  type="array", items_type="string", required=True),
         ],
     ),
     EndpointSpec(
@@ -406,9 +410,47 @@ ENDPOINTS: list[EndpointSpec] = [
         description="Update the configuration for a Device Trust Check in 1Password Device Trust (Kolide K2)",
         method="PATCH",
         path="/checks/{check_id}/configurations",
-        body_param="configuration",
         params=[
-            Param("configuration", "The configuration to update", type="object", required=True),
+            Param("paused", "Whether this check is currently paused", type="boolean"),
+            Param("block_auth_grace_period_days",
+                  "Number of days a device is allowed to be out of compliance before blocking",
+                  type="integer"),
+            Param("auth_check_run_shelf_life_seconds",
+                  "Number of seconds a check result is considered valid for authentication. If "
+                  "a check result is older than this value at authentication time, it will be "
+                  "re-run during the authentication process.",
+                  type="integer"),
+            Param("snooze_disallowed", "Whether users are allowed to snooze this check",
+                  type="boolean"),
+            Param("exemptions_disallowed",
+                  "Whether users are allowed to request exemptions for this check",
+                  type="boolean"),
+            Param("targeted_groups",
+                  "List of groups targeted by this check. A combination of group IDs and "
+                  "platform names; for platforms use 'macos', 'windows', or 'linux'.",
+                  type="array", items_type="string"),
+            Param("excluded_groups",
+                  "List of groups excluded from this check. A combination of group IDs and "
+                  "platform names; for platforms use 'macos', 'windows', or 'linux'.",
+                  type="array", items_type="string"),
+            Param("blocking_allowed_groups",
+                  "List of groups allowed to be blocked by this check. A combination of group "
+                  "IDs and platform names; for platforms use 'macos', 'windows', or 'linux'.",
+                  type="array", items_type="string"),
+            Param("blocking_excluded_groups",
+                  "List of groups excluded from being blocked by this check. A combination of "
+                  "group IDs and platform names; for platforms use 'macos', 'windows', or "
+                  "'linux'.",
+                  type="array", items_type="string"),
+            Param("options",
+                  "Additional options for this check configuration. Changes to this field "
+                  "overwrite previous options, and any fields not specified here will be "
+                  "deleted. Options are specified on a per-check basis and can be viewed in "
+                  "the UI.",
+                  type="string"),
+            Param("remediation_strategy",
+                  "The strategy used for remediating this check",
+                  enum=["block_immediately", "warn_then_block", "notify_only", "report_only"]),
         ],
     ),
     EndpointSpec(
@@ -469,17 +511,18 @@ ENDPOINTS: list[EndpointSpec] = [
         method="POST",
         path="/live_query_campaigns",
         params=[
-            Param("sql", "The osquery SQL query to run", required=True),
-            Param("name", "Optional name for the campaign"),
-            Param("description", "Optional description"),
-            Param("device_ids", "Optional list of device IDs to target",
-                  type="array", items_type="string"),
-            Param("device_group_ids", "Optional list of device group IDs to target",
-                  type="array", items_type="string"),
-            Param("target_macs", "Target all macOS devices"),
-            Param("target_windows_devices", "Target all Windows devices"),
-            Param("target_linux_devices", "Target all Linux devices"),
-            Param("target_all_devices", "Target all devices regardless of platform"),
+            Param("sql", "The sql to be run on all targeted devices", required=True),
+            Param("name", "The title of the live query"),
+            Param("targeted_device_ids", "Target specific devices in the Live Query",
+                  type="array", items_type="integer"),
+            Param("target_all_devices", "Target all devices in the Live Query",
+                  type="boolean"),
+            Param("target_macs", "Target all macOS devices in the Live Query",
+                  type="boolean"),
+            Param("target_windows_devices", "Target all Windows devices in the Live Query",
+                  type="boolean"),
+            Param("target_linux_devices", "Target all Linux devices in the Live Query",
+                  type="boolean"),
         ],
     ),
     EndpointSpec(
@@ -488,8 +531,18 @@ ENDPOINTS: list[EndpointSpec] = [
         method="PATCH",
         path="/live_query_campaigns/{campaign_id}",
         params=[
-            Param("name", "New name for the campaign"),
-            Param("description", "New description"),
+            Param("name", "The title of the live query"),
+            Param("sql", "The sql to be run on all targeted devices"),
+            Param("targeted_device_ids", "Target specific devices in the Live Query",
+                  type="array", items_type="integer"),
+            Param("target_all_devices", "Target all devices in the Live Query",
+                  type="boolean"),
+            Param("target_macs", "Target all macOS devices in the Live Query",
+                  type="boolean"),
+            Param("target_windows_devices", "Target all Windows devices in the Live Query",
+                  type="boolean"),
+            Param("target_linux_devices", "Target all Linux devices in the Live Query",
+                  type="boolean"),
         ],
     ),
     EndpointSpec(
@@ -533,8 +586,14 @@ ENDPOINTS: list[EndpointSpec] = [
         method="PATCH",
         path="/exemption_requests/{request_id}",
         params=[
-            Param("status", "New status for the request"),
-            Param("reviewer_note", "Note from the reviewer"),
+            Param("status", "Desired status of the exemption request",
+                  enum=["approved", "denied"]),
+            Param("internal_message",
+                  "The internal explanation for approving or denying this exemption. Not "
+                  "shown to the requester; for internal documentation in the audit log."),
+            Param("denial_explanation",
+                  "The message shown to the requester when denying this exemption. Required "
+                  "if the status is 'denied'."),
         ],
     ),
 
@@ -560,7 +619,14 @@ ENDPOINTS: list[EndpointSpec] = [
         method="PATCH",
         path="/registration_requests/{request_id}",
         params=[
-            Param("status", "New status for the request"),
+            Param("status", "Desired status of the registration request",
+                  enum=["approved", "denied"]),
+            Param("internal_message",
+                  "The internal explanation for approving or denying this request. Not shown "
+                  "to the requester; for internal documentation in the audit log."),
+            Param("end_user_denial_message",
+                  "The message shown to the requester when denying this registration. "
+                  "Required if the status is 'denied'."),
         ],
     ),
 
@@ -761,6 +827,8 @@ def build_tool(spec: EndpointSpec) -> Tool:
         }
         if param.type == "array" and param.items_type:
             prop["items"] = {"type": param.items_type}
+        if param.enum:
+            prop["enum"] = param.enum
         properties[param.name] = prop
         if param.required:
             required.append(param.name)
