@@ -597,10 +597,10 @@ def _scaffold_endpoint(info: OperationInfo, supported: tuple[str, ...]) -> str:
     description = info.summary or "TODO: write a human-facing description for this endpoint"
     lines = [
         "    EndpointSpec(",
-        f'        name="{_derive_name(info)}",',
+        f"        name={json.dumps(_derive_name(info))},",
         f"        description={json.dumps(description)},",
         f'        method="{info.method}",',
-        f'        path="{info.raw_path}",',
+        f"        path={json.dumps(info.raw_path)},",
     ]
     if info.paginated:
         lines.append("        paginated=True,")
