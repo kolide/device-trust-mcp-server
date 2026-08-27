@@ -389,7 +389,7 @@ def format_api_versions(gate: frozenset[str] | None) -> str:
 
 
 def format_fields(fields: list[str]) -> str:
-    return "[" + ", ".join(f'"{f}"' for f in fields) + "]"
+    return "[" + ", ".join(json.dumps(f) for f in fields) + "]"
 
 
 # ===== Reconciliation =====
