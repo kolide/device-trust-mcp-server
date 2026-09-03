@@ -708,6 +708,38 @@ ENDPOINTS: list[EndpointSpec] = [
         path="/reporting/queries/{query_id}/results",
         paginated=True,
     ),
+
+    # --- AUTO-GENERATED: review & refine (scripts/sync_endpoints.py) ---
+    EndpointSpec(
+        name="delete_custom_check_drafts",
+        description="Delete a specific Custom check draft",
+        method="DELETE",
+        path="/custom_check_drafts/{id}",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="list_custom_check_drafts",
+        description="Fetch a list of Custom check drafts",
+        method="GET",
+        path="/custom_check_drafts",
+        paginated=True,
+        searchable_fields=["name", "slug", "created_at", "id"],
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="get_custom_check_drafts",
+        description="Fetch information for a specific Custom check draft",
+        method="GET",
+        path="/custom_check_drafts/{id}",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="create_custom_check_drafts",
+        description="Create a custom check draft",
+        method="POST",
+        path="/custom_check_drafts",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
 ]
 
 _SUPPORTED_VERSIONS_SET = frozenset(SUPPORTED_KOLIDE_API_VERSIONS)
