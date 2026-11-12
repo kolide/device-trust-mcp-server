@@ -708,6 +708,71 @@ ENDPOINTS: list[EndpointSpec] = [
         path="/reporting/queries/{query_id}/results",
         paginated=True,
     ),
+
+    # --- AUTO-GENERATED: review & refine (scripts/sync_endpoints.py) ---
+    EndpointSpec(
+        name="delete_custom_check_drafts",
+        description="Delete a specific Custom check draft",
+        method="DELETE",
+        path="/custom_check_drafts/{id}",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="list_custom_check_drafts",
+        description="Fetch a list of Custom check drafts",
+        method="GET",
+        path="/custom_check_drafts",
+        paginated=True,
+        searchable_fields=["name", "slug", "created_at", "id"],
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="get_custom_check_drafts",
+        description="Fetch information for a specific Custom check draft",
+        method="GET",
+        path="/custom_check_drafts/{id}",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="list_custom_check_templates",
+        description="Fetch a list of Custom check templates",
+        method="GET",
+        path="/custom_check_templates",
+        paginated=True,
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="get_custom_check_templates",
+        description="Fetch information for a specific Custom check template",
+        method="GET",
+        path="/custom_check_templates/{id}",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="list_insights_ai_apps",
+        description="Fetch a list of AI Insights apps",
+        method="GET",
+        path="/insights/ai/apps",
+        paginated=True,
+        searchable_fields=["app_name", "last_used"],
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="get_insights_ai_apps",
+        description="Fetch information for a specific AI Insights app",
+        method="GET",
+        path="/insights/ai/apps/{appName}",
+        api_versions=frozenset({"2026-04-07"}),
+    ),
+    EndpointSpec(
+        name="list_insights_ai_apps_person_usages",
+        description="Fetch a list of AI Insights app person usages",
+        method="GET",
+        path="/insights/ai/apps/{appName}/person_usages",
+        paginated=True,
+        searchable_fields=["person_name", "last_used"],
+        api_versions=frozenset({"2026-04-07"}),
+    ),
 ]
 
 _SUPPORTED_VERSIONS_SET = frozenset(SUPPORTED_KOLIDE_API_VERSIONS)
